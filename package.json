@@ -1,0 +1,40 @@
+{
+  "name": "secret-santa-v2",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "npx tsc",
+    "start": "npx tsc && node dist/controllers/index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rvanwyk9191/secret-santa-be-v2.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/rvanwyk9191/secret-santa-be-v2/issues"
+  },
+  "homepage": "https://github.com/rvanwyk9191/secret-santa-be-v2#readme",
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/jest": "^30.0.0",
+    "@types/uuid": "^11.0.0",
+    "eslint": "^10.2.0",
+    "prettier": "^3.8.3"
+  },
+  "dependencies": {
+    "@aws-sdk/client-ssm": "^3.1032.0",
+    "express-jwt": "^8.5.1",
+    "jwks-rsa": "^4.0.1",
+    "typescript": "^6.0.3",
+    "uuid": "^14.0.0"
+  }
+}
