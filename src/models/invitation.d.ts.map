@@ -1,1 +1,0 @@
-{"version":3,"file":"invitation.d.ts","sourceRoot":"","sources":["invitation.ts"],"names":[],"mappings":"AAAA,MAAM,WAAW,UAAU;IACzB,QAAQ,EAAE,MAAM,CAAC;IACjB,KAAK,EAAE,MAAM,CAAC;IACd,KAAK,EAAE,MAAM,CAAC;IACd,UAAU,EAAE,MAAM,CAAC;IACnB,QAAQ,EAAE,OAAO,CAAC;IAClB,WAAW,CAAC,EAAE,MAAM,CAAC;CACtB"}

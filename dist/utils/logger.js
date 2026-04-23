@@ -1,8 +1,10 @@
-export {};
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.Logger = void 0;
 /**
  * Simple logger utility. Replace with a more robust logger (e.g., Winston) for production.
  */
-export class Logger {
+class Logger {
     static info(message, ...args) {
         // eslint-disable-next-line no-console
         console.info(`[INFO] ${message}`, ...args);
@@ -16,4 +18,4 @@ export class Logger {
         console.error(`[ERROR] ${message}`, ...args);
     }
 }
-//# sourceMappingURL=logger.js.map
+exports.Logger = Logger;

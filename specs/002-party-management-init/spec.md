@@ -215,6 +215,14 @@ This supports querying notification history by party.
 - Use Auth0 email claims as the canonical identity key.
 - Support Google login through Auth0 connection configuration.
 - On sign-in after invite link click, map the returned email to the pending invitation and party.
+- Auth0 configuration values MUST be retrieved from AWS SSM Parameter Store at the following paths:
+  - Domain: `/secret-santa/auth0/domain`
+  - Audience: `/secret-santa/auth0/audience`
+  - Client ID: `/secret-santa/auth0/client_id`
+  - Client Secret: `/secret-santa/auth0/client_secret`
+- Environment variables MUST NOT be used as the primary source for Auth0 credentials.
+- The `src/auth/auth0.ts` module MUST resolve all four SSM values before constructing the JWT middleware.
+- This is a constitutional requirement and MUST be implemented before any Auth0-protected route is exercised.
 
 ## Notification Flow
 
