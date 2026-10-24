@@ -1,0 +1,51 @@
+{
+  "name": "secret-santa-v2",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "jest",
+    "build": "npx tsc && echo \"Build complete.\"",
+    "start": "concurrently -k -n backend,frontend \"npm run start:backend\" \"npm run start:frontend\"",
+    "start:backend": "tsx backend/src/controllers/index.ts",
+    "start:frontend": "npm --prefix frontend run dev"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rvanwyk9191/secret-santa-be-v2.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/rvanwyk9191/secret-santa-be-v2/issues"
+  },
+  "homepage": "https://github.com/rvanwyk9191/secret-santa-be-v2#readme",
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/jest": "^30.0.0",
+    "@types/supertest": "^7.2.0",
+    "@types/uuid": "^11.0.0",
+    "concurrently": "^10.0.6",
+    "eslint": "^10.2.0",
+    "prettier": "^3.8.3",
+    "supertest": "^7.2.2",
+    "ts-jest": "^29.4.9",
+    "tsx": "^4.21.0"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1035.0",
+    "@aws-sdk/client-sns": "^3.1034.0",
+    "@aws-sdk/client-ssm": "^3.1032.0",
+    "@aws-sdk/lib-dynamodb": "^3.1035.0",
+    "express": "^5.2.1",
+    "express-jwt": "^8.5.1",
+    "express-openid-connect": "^2.20.2",
+    "jwks-rsa": "^4.0.1",
+    "typescript": "^6.0.3",
+    "uuid": "^14.0.0"
+  }
+}

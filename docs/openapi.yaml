@@ -1,0 +1,1058 @@
+openapi: 3.0.3
+info:
+  title: Secret Santa v2 API
+  description: |
+    Party-based gift exchange API. Supports party creation, email-based invitations,
+    member profile management, gift wish-list submission, party locking, and
+    automatic or manual gift assignments.
+
+    ## Authentication
+
+    All protected endpoints require a valid `access_token` cookie issued by the
+    Auth0 OIDC login flow. The cookie is an HttpOnly, Secure, SameSite=None JWT
+    signed by Auth0 and validated against the Auth0 JWKS endpoint.
+
+    ### Login flow
+    1. `GET /api/auth/login` — redirects the browser to the Auth0 Universal Login page.
+    2. Auth0 redirects back to `GET /api/auth/callback` after successful authentication.
+    3. The server sets the `access_token` as an HttpOnly cookie and redirects to the app root.
+    4. All subsequent requests include the cookie automatically (browser-based clients).
+    5. `GET /api/auth/logout` — clears the session and redirects to Auth0 logout.
+
+    ## Self-authorization
+
+    All `/members/{member_id}` routes enforce that the caller's email (from the JWT
+    `registered_user_email` claim) matches the URL-encoded `member_id` parameter.
+    Mismatches return HTTP 403.
+  version: 1.0.0
+
+servers:
+  - url: https://{host}/api
+    variables:
+      host:
+        default: 127.0.0.1:8080
+        description: Application host
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: access_token
+      description: |
+        HttpOnly JWT cookie set by the Auth0 OIDC callback. Contains a
+        `registered_user_email` custom claim identifying the authenticated user.
+
+  schemas:
+    Party:
+      type: object
+      required:
+        - party_id
+        - name
+        - admin_email
+        - customizationEnabled
+        - locked
+        - created_at
+        - updated_at
+      properties:
+        party_id:
+          type: string
+          example: e876dd4f
+          description: 8-character hex unique identifier (first segment of a UUID v4).
+        name:
+          type: string
+          example: Office Christmas Party 2026
+        description:
+          type: string
+          example: Annual team gift exchange
+        admin_email:
+          type: string
+          format: email
+          example: admin@example.com
+        customizationEnabled:
+          type: boolean
+          description: When true, members may submit a gift wish-list blob.
+        locked:
+          type: boolean
+          description: When true, no further membership changes or gift updates are allowed.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Invitation:
+      type: object
+      required:
+        - party_id
+        - email
+        - token
+        - status
+        - sent_at
+      properties:
+        party_id:
+          type: string
+          example: e876dd4f
+        email:
+          type: string
+          format: email
+          example: participant@example.com
+        token:
+          type: string
+          description: Unique secure token embedded in the invitation magic link.
+          example: a3f1c9b2-4d56-4e78-90ab-cdef01234567
+        status:
+          type: string
+          enum: [pending, accepted, revoked]
+        sent_at:
+          type: string
+          format: date-time
+        accepted_at:
+          type: string
+          format: date-time
+
+    PartyMember:
+      type: object
+      required:
+        - email
+        - party_id
+        - role
+        - joined_at
+      properties:
+        email:
+          type: string
+          format: email
+          example: member@example.com
+        party_id:
+          type: string
+          example: e876dd4f
+        role:
+          type: string
+          enum: [admin, member]
+        first_name:
+          type: string
+          example: Jane
+        last_name:
+          type: string
+          example: Doe
+        joined_at:
+          type: string
+          format: date-time
+        gift_blob:
+          type: string
+          description: Free-form wish-list text provided by the member (only when customizationEnabled is true).
+          example: "Books, board games, anything coffee-related."
+
+    Assignment:
+      type: object
+      required:
+        - party_id
+        - giver_email
+        - recipient_email
+        - assigned_at
+      properties:
+        party_id:
+          type: string
+          example: e876dd4f
+        giver_email:
+          type: string
+          format: email
+          example: giver@example.com
+        recipient_email:
+          type: string
+          format: email
+          example: recipient@example.com
+        assigned_at:
+          type: string
+          format: date-time
+
+    Error:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - message
+          properties:
+            message:
+              type: string
+              example: Party name is required.
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      operationId: healthCheck
+      tags: [System]
+      responses:
+        '200':
+          description: Service is healthy.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /auth/login:
+    get:
+      summary: Initiate Auth0 OIDC login
+      operationId: authLogin
+      tags: [Auth]
+      description: |
+        Redirects the browser to the Auth0 Universal Login page. On success,
+        Auth0 redirects to `/api/auth/callback`.
+      responses:
+        '302':
+          description: Redirect to Auth0 Universal Login.
+
+  /auth/callback:
+    get:
+      summary: Auth0 OIDC callback
+      operationId: authCallback
+      tags: [Auth]
+      description: |
+        Receives the authorization code from Auth0, exchanges it for tokens,
+        sets the `access_token` as an HttpOnly Secure cookie, and redirects
+        the browser to the application root.
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to application root after successful authentication.
+
+  /auth/logout:
+    get:
+      summary: Logout
+      operationId: authLogout
+      tags: [Auth]
+      description: Clears the OIDC session and redirects to Auth0 logout.
+      responses:
+        '302':
+          description: Redirect to Auth0 logout endpoint.
+
+  /parties:
+    post:
+      summary: Create a party
+      operationId: createParty
+      tags: [Parties]
+      security:
+        - cookieAuth: []
+      description: |
+        Creates a new party. The authenticated user becomes the party administrator.
+        Their email is read from the `registered_user_email` claim in the JWT cookie.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                  description: Human-readable party name. Must be non-empty.
+                  example: Office Christmas Party 2026
+                description:
+                  type: string
+                  example: Annual team gift exchange
+                customizationEnabled:
+                  type: boolean
+                  default: false
+                  description: Allow members to submit a gift wish-list blob.
+      responses:
+        '201':
+          description: Party created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Party'
+        '400':
+          description: Missing or invalid request body.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error:
+                  message: Party name is required.
+        '401':
+          description: Missing or invalid authentication cookie.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /parties/{party_id}/invitations:
+    post:
+      summary: Send an invitation
+      operationId: createInvitation
+      tags: [Invitations]
+      security:
+        - cookieAuth: []
+      description: |
+        Creates an invitation record in DynamoDB with `status: pending`. The
+        invitation email is delivered automatically by the event-driven emailer
+        Lambda (DynamoDB Stream → EventBridge Pipes → Lambda → SES).
+        Only the party administrator may invite participants.
+      parameters:
+        - $ref: '#/components/parameters/PartyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: participant@example.com
+      responses:
+        '201':
+          description: Invitation created. Email delivery is handled asynchronously.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invitation'
+        '400':
+          description: Missing or invalid email address.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid authentication cookie.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /parties/{party_id}/invitations/{token}:
+    get:
+      summary: Accept invitation magic link
+      operationId: acceptInvitation
+      tags: [Invitations]
+      description: |
+        Magic-link entry point for invited participants. No JWT cookie is required.
+        Authentication is handled through the OIDC session:
+
+        - **Unauthenticated visitor**: the server redirects the browser to Auth0 login,
+          storing the original URL as `returnTo`. Auth0 redirects back here after login.
+        - **Authenticated visitor**: the server reads the user email from the OIDC session,
+          accepts the invitation, and redirects to the application root (`/`).
+      parameters:
+        - $ref: '#/components/parameters/PartyId'
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Unique invitation token from the email link.
+      responses:
+        '302':
+          description: |
+            Redirect to Auth0 login (unauthenticated) or to the application root
+            (invitation accepted).
+        '400':
+          description: Missing party_id or token.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Authenticated session is missing the email claim.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: The invitation email does not match the authenticated user's email.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Invitation or party not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Invitation already accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /parties/{party_id}/members/{member_id}/profile:
+    get:
+      summary: Get member profile
+      operationId: getProfile
+      tags: [Profile]
+      security:
+        - cookieAuth: []
+      description: |
+        Returns the full `PartyMember` record for the authenticated user.
+        `member_id` is the URL-encoded email address of the member.
+
+        **Self-authorization**: the caller's JWT email must match `member_id`.
+      parameters:
+        - $ref: '#/components/parameters/PartyId'
+        - $ref: '#/components/parameters/MemberId'
+      responses:
+        '200':
+          description: Member profile retrieved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartyMember'
+        '401':
+          description: Missing or invalid authentication cookie.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Caller email does not match member_id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Member not found in the party.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    put:
+      summary: Update member profile
+      operationId: updateProfile
+      tags: [Profile]
+      security:
+        - cookieAuth: []
+      description: |
+        Updates blank `first_name` and/or `last_name` fields for the authenticated member.
+        Existing non-blank values are **never overwritten**.
+        `member_id` is the URL-encoded email address of the member.
+
+        **Self-authorization**: the caller's JWT email must match `member_id`.
+      parameters:
+        - $ref: '#/components/parameters/PartyId'
+        - $ref: '#/components/parameters/MemberId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                firstName:
+                  type: string
+                  example: Jane
+                lastName:
+                  type: string
+                  example: Doe
+              description: At least one of `firstName` or `lastName` must be provided.
+      responses:
+        '200':
+          description: Profile updated. Returns the updated `PartyMember` record.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartyMember'
+        '400':
+          description: Neither firstName nor lastName was provided.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid authentication cookie.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Caller email does not match member_id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Member not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /parties/{party_id}/members/{member_id}/gifts:
+    post:
+      summary: Submit gift wish-list
+      operationId: saveGiftBlob
+      tags: [Gifts]
+      security:
+        - cookieAuth: []
+      description: |
+        Saves a free-form gift wish-list blob for the authenticated member.
+        The party must have `customizationEnabled: true`.
+        `member_id` is the URL-encoded email address of the member.
+
+        **Self-authorization**: the caller's JWT email must match `member_id`.
+      parameters:
+        - $ref: '#/components/parameters/PartyId'
+        - $ref: '#/components/parameters/MemberId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - giftBlob
+              properties:
+                giftBlob:
+                  type: string
+                  description: Free-form wish-list text. Must be non-empty.
+                  example: "Books, board games, anything coffee-related."
+      responses:
+        '201':
+          description: Gift blob saved. Returns the updated `PartyMember` record.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartyMember'
+        '400':
+          description: Missing or empty giftBlob.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid authentication cookie.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: |
+            Caller email does not match member_id, or party does not have
+            customizationEnabled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Member or party not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /parties/{party_id}/lock:
+    post:
+      summary: Lock a party
+      operationId: lockParty
+      tags: [Parties]
+      security:
+        - cookieAuth: []
+      description: |
+        Locks the party so no further membership changes or gift updates can occur.
+        Only the party administrator may lock the party.
+        Publishes a `party_locked` SNS event on success.
+      parameters:
+        - $ref: '#/components/parameters/PartyId'
+      responses:
+        '200':
+          description: Party locked. Returns the updated `Party` record.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Party'
+        '401':
+          description: Missing or invalid authentication cookie.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Caller is not the party administrator.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Party not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Party is already locked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /parties/{party_id}/assignments:
+    post:
+      summary: Create gift assignments
+      operationId: createAssignments
+      tags: [Assignments]
+      security:
+        - cookieAuth: []
+      description: |
+        Generates or saves giver/recipient assignment pairs for the party.
+        Only the party administrator may trigger assignments.
+        The party must be locked before assignments can be created.
+
+        **Automatic mode**: the server randomly generates a valid derangement (no
+        participant is assigned to themselves).
+
+        **Manual mode**: the caller provides explicit `giverEmail`/`recipientEmail`
+        pairs that must cover all party members.
+      parameters:
+        - $ref: '#/components/parameters/PartyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - title: Automatic
+                  type: object
+                  required:
+                    - mode
+                  properties:
+                    mode:
+                      type: string
+                      enum: [automatic]
+                - title: Manual
+                  type: object
+                  required:
+                    - mode
+                    - assignments
+                  properties:
+                    mode:
+                      type: string
+                      enum: [manual]
+                    assignments:
+                      type: array
+                      items:
+                        type: object
+                        required:
+                          - giverEmail
+                          - recipientEmail
+                        properties:
+                          giverEmail:
+                            type: string
+                            format: email
+                          recipientEmail:
+                            type: string
+                            format: email
+      responses:
+        '201':
+          description: Assignments created. Returns the list of `Assignment` records.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Assignment'
+        '400':
+          description: Invalid mode, missing assignments array, or invalid assignment pairs.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid authentication cookie.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Caller is not the party administrator, or party is not locked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Party not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Assignments already exist for this party.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ── Reusable parameters ──────────────────────────────────────────────────────
+
+parameters:
+  PartyId:
+    name: party_id
+    in: path
+    required: true
+    schema:
+      type: string
+      example: e876dd4f
+    description: 8-character hex party identifier.
+
+  MemberId:
+    name: member_id
+    in: path
+    required: true
+    schema:
+      type: string
+      example: member%40example.com
+    description: URL-encoded email address of the party member.
+
+  /me/parties:
+    get:
+      summary: Get parties the authenticated user belongs to
+      operationId: getMyParties
+      tags: [Me]
+      security:
+        - cookieAuth: []
+      description: |
+        Returns all parties where the authenticated user is an accepted member
+        (excluding parties they administer). Each entry is enriched with party
+        details and the user's assignment if one exists.
+      responses:
+        '200':
+          description: List of member party entries.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    party:
+                      $ref: '#/components/schemas/Party'
+                    member:
+                      $ref: '#/components/schemas/PartyMember'
+                    assignment:
+                      type: object
+                      properties:
+                        recipient_email:
+                          type: string
+                          format: email
+                        recipient_first_name:
+                          type: string
+                        recipient_last_name:
+                          type: string
+                        recipient_gift_blob:
+                          type: string
+        '401':
+          description: Missing or invalid authentication cookie.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /me/hosted-parties:
+    get:
+      summary: Get parties the authenticated user hosts
+      operationId: getMyHostedParties
+      tags: [Me]
+      security:
+        - cookieAuth: []
+      description: |
+        Returns all parties where the authenticated user is the admin, with full
+        member lists and assignment status.
+      responses:
+        '200':
+          description: List of hosted party entries.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    party:
+                      $ref: '#/components/schemas/Party'
+                    members:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          member:
+                            $ref: '#/components/schemas/PartyMember'
+                          assignment:
+                            type: object
+                            properties:
+                              recipient_email:
+                                type: string
+                                format: email
+                    assigned:
+                      type: boolean
+                      description: True if all members have an assignment.
+        '401':
+          description: Missing or invalid authentication cookie.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /parties/{party_id}/unlock:
+    post:
+      summary: Unlock a party
+      operationId: unlockParty
+      tags: [Parties]
+      security:
+        - cookieAuth: []
+      description: Unlocks a previously locked party. Admin only.
+      parameters:
+        - $ref: '#/components/parameters/PartyId'
+      responses:
+        '200':
+          description: Party unlocked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Party'
+        '403':
+          description: Caller is not the party administrator.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Party not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Party is not locked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /parties/{party_id}:
+    patch:
+      summary: Update party settings
+      operationId: updateParty
+      tags: [Parties]
+      security:
+        - cookieAuth: []
+      description: Updates mutable party fields. Admin only.
+      parameters:
+        - $ref: '#/components/parameters/PartyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                customizationEnabled:
+                  type: boolean
+                name:
+                  type: string
+                description:
+                  type: string
+      responses:
+        '200':
+          description: Party updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Party'
+        '403':
+          description: Caller is not the party administrator.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Party not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /parties/{party_id}/members/{member_id}:
+    delete:
+      summary: Remove a member from the party
+      operationId: removeMember
+      tags: [Members]
+      security:
+        - cookieAuth: []
+      description: Deletes an accepted member from the party. Admin only.
+      parameters:
+        - $ref: '#/components/parameters/PartyId'
+        - $ref: '#/components/parameters/MemberId'
+      responses:
+        '204':
+          description: Member removed.
+        '403':
+          description: Caller is not the party administrator.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Party not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /parties/{party_id}/email-matches:
+    post:
+      summary: Email all members their match
+      operationId: emailAllMatches
+      tags: [Email]
+      security:
+        - cookieAuth: []
+      description: |
+        Publishes match notification events for all members. Party must be locked
+        and all members must be assigned. Admin only.
+      parameters:
+        - $ref: '#/components/parameters/PartyId'
+      responses:
+        '200':
+          description: Emails queued.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        '403':
+          description: Caller is not the party administrator, or party is not locked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Party has no assignments yet.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /parties/{party_id}/members/{member_id}/email-match:
+    post:
+      summary: Email a single member their match
+      operationId: emailMemberMatch
+      tags: [Email]
+      security:
+        - cookieAuth: []
+      description: Publishes a match notification for a single member. Admin only.
+      parameters:
+        - $ref: '#/components/parameters/PartyId'
+        - $ref: '#/components/parameters/MemberId'
+      responses:
+        '200':
+          description: Email queued.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        '403':
+          description: Caller is not the party administrator or party is not locked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Member or assignment not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+tags:
+  - name: System
+    description: Health and operational endpoints.
+  - name: Auth
+    description: Auth0 OIDC login, callback, and logout.
+  - name: Me
+    description: Current-user party lookups.
+  - name: Parties
+    description: Party lifecycle — create, update, lock, unlock.
+  - name: Invitations
+    description: Invitation creation and magic-link acceptance.
+  - name: Profile
+    description: Member profile retrieval and update.
+  - name: Gifts
+    description: Gift wish-list submission.
+  - name: Members
+    description: Party member management (admin only).
+  - name: Assignments
+    description: Giver/recipient assignment generation.
+  - name: Email
+    description: Match email delivery.

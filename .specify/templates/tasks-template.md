@@ -60,6 +60,10 @@ description: "Task list template for feature implementation"
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
+**Test Mocking (Constitution v1.6)**: All tasks that include Jest tests MUST mock every downstream
+call. Use `jest.mock()` for all AWS SDK modules (`@aws-sdk/lib-dynamodb`, `@aws-sdk/client-sns`,
+`@aws-sdk/client-ssm`) and any Auth0/external HTTP calls. No test may make real network calls.
+
 Examples of foundational tasks (adjust based on your project):
 
 - [ ] T004 Setup database schema and migrations framework
