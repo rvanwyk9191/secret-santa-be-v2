@@ -11,8 +11,9 @@ resource "aws_pipes_pipe" "emailer" {
 
   source_parameters {
     dynamodb_stream_parameters {
-      batch_size        = 1
-      starting_position = "LATEST"
+      batch_size              = 1
+      starting_position       = "LATEST"
+      maximum_retry_attempts  = 0
     }
 
     filter_criteria {
@@ -35,7 +36,14 @@ resource "aws_pipes_pipe" "emailer" {
     # Shape the DynamoDB stream record into the EmailerEvent payload expected by the Lambda.
     # Angle-bracket paths (<$.…>) are EventBridge Pipes dynamic path syntax — not Terraform
     # interpolation. The bucket and object are static placeholders resolved at deploy time.
-    input_template = "{\"email\": \"<$.dynamodb.NewImage.email.S>\", \"messageObject\": {\"bucket\": \"${var.message_content_bucket}\", \"object\": \"${var.message_content_object}\"}}"
+    input_template = "{\"email\": \"<$.dynamodb.NewImage.email.S>\", \"messageObject\": {\"bucket\": \"${var.message_content_bucket}\", \"object\": \"${var.message_content_object}\"}, \"eventIdentifier\": \"<$.dynamodb.NewImage.party_id.S>\", \"token\": \"<$.dynamodb.NewImage.token.S>\"}"
+
+    # Invoke the Lambda asynchronously (fire-and-forget). The Pipe does not wait for the
+    # Lambda response; retries are disabled at both the Pipe source layer (maximum_retry_attempts = 0
+    # on dynamodb_stream_parameters) and the Lambda async layer (event_invoke_config below).
+    lambda_function_parameters {
+      invocation_type = "FIRE_AND_FORGET"
+    }
   }
 
   tags = {

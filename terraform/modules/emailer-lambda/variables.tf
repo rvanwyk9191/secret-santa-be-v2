@@ -42,3 +42,20 @@ variable "lambda_artifact_path" {
   type        = string
   default     = "../lambdas/emailer/emailer.zip"
 }
+
+variable "parties_table_arn" {
+  description = "ARN of the DynamoDB Parties table (used for GetItem permission on the Lambda role)"
+  type        = string
+}
+
+variable "parties_table_name" {
+  description = "Name of the DynamoDB Parties table passed to the Lambda as an environment variable"
+  type        = string
+  default     = "Parties"
+}
+
+variable "invitation_base_url" {
+  description = "Base URL prepended to invitation acceptance links included in invitation emails (e.g. https://api.example.com/api)"
+  type        = string
+  default     = "https://127.0.0.1:8080/api"
+}

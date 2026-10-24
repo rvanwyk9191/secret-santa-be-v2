@@ -16,14 +16,23 @@ jest.mock('@aws-sdk/client-ses', () => ({
   SendEmailCommand: jest.fn().mockImplementation((input) => input),
 }));
 
-// ── logger mock ────────────────────────────────────────────────────────────
-jest.mock('../../src/utils/logger.js', () => ({
-  Logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+// ── partyResolver mocks ────────────────────────────────────────────────────
+const mockDynamoSend = jest.fn();
+
+jest.mock('@aws-sdk/client-dynamodb', () => ({
+  DynamoDBClient: jest.fn().mockImplementation(() => ({ send: mockDynamoSend })),
+  GetItemCommand: jest.fn().mockImplementation((input) => input),
 }));
 
-// Real implementations are used — no mocks for contentResolver or emailSender
+// ── logger mock ────────────────────────────────────────────────────────────
+jest.mock('../../src/utils/logger.js', () => ({
+  Logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+}));
+
+// Real implementations are used — no mocks for contentResolver, emailSender, or partyResolver
 import { resolveContent } from '../../src/services/contentResolver.js';
 import { sendEmail } from '../../src/services/emailSender.js';
+import { resolvePartyName } from '../../src/services/partyResolver.js';
 import { handler } from '../../src/handler.js';
 import { Logger } from '../../src/utils/logger.js';
 
@@ -31,8 +40,10 @@ describe('error handling', () => {
   beforeEach(() => {
     mockS3Send.mockReset();
     mockSesSend.mockReset();
+    mockDynamoSend.mockReset();
     (Logger.error as jest.Mock).mockReset();
     (Logger.info as jest.Mock).mockReset();
+    (Logger.warn as jest.Mock).mockReset();
   });
 
   describe('contentResolver: S3 send rejects', () => {
@@ -71,7 +82,7 @@ describe('error handling', () => {
     it('throws and logs validation error when email is an empty string', async () => {
       const badEvent = { email: '', messageObject: { bucket: 'b', object: 'k' } };
 
-      await expect(handler(badEvent as never)).rejects.toThrow(/invalid event — email must be a non-empty string/);
+      await expect(handler([badEvent] as never)).rejects.toThrow(/invalid event — email must be a non-empty string/);
       expect(Logger.error).toHaveBeenCalledWith(
         expect.stringContaining('invalid event — email must be a non-empty string')
       );
@@ -80,7 +91,7 @@ describe('error handling', () => {
     it('throws and logs validation error when messageObject.bucket is empty', async () => {
       const badEvent = { email: 'a@b.com', messageObject: { bucket: '', object: 'k' } };
 
-      await expect(handler(badEvent as never)).rejects.toThrow(/invalid event — messageObject.bucket must be a non-empty string/);
+      await expect(handler([badEvent] as never)).rejects.toThrow(/invalid event — messageObject.bucket must be a non-empty string/);
       expect(Logger.error).toHaveBeenCalledWith(
         expect.stringContaining('invalid event — messageObject.bucket must be a non-empty string')
       );
@@ -89,7 +100,7 @@ describe('error handling', () => {
     it('throws and logs validation error when messageObject.object is empty', async () => {
       const badEvent = { email: 'a@b.com', messageObject: { bucket: 'b', object: '' } };
 
-      await expect(handler(badEvent as never)).rejects.toThrow(/invalid event — messageObject.object must be a non-empty string/);
+      await expect(handler([badEvent] as never)).rejects.toThrow(/invalid event — messageObject.object must be a non-empty string/);
       expect(Logger.error).toHaveBeenCalledWith(
         expect.stringContaining('invalid event — messageObject.object must be a non-empty string')
       );
@@ -142,12 +153,63 @@ describe('error handling', () => {
       mockS3Send.mockRejectedValueOnce('downstream-string-error');
 
       await expect(
-        handler({ email: 'a@b.com', messageObject: { bucket: 'b', object: 'k' } })
+        handler([{ email: 'a@b.com', messageObject: { bucket: 'b', object: 'k' } }])
       ).rejects.toBe('downstream-string-error');
 
       expect(Logger.error).toHaveBeenCalledWith(
         expect.stringContaining('failed to dispatch invitation email'),
         'downstream-string-error'
+      );
+    });
+  });
+
+  describe('partyResolver: DynamoDB GetItem rejects', () => {
+    it('logs error and re-throws the DynamoDB error', async () => {
+      mockDynamoSend.mockRejectedValueOnce(new Error('ResourceNotFoundException'));
+
+      await expect(resolvePartyName('party-123')).rejects.toThrow('ResourceNotFoundException');
+      expect(Logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('DynamoDB GetItem failed'),
+        expect.stringContaining('ResourceNotFoundException')
+      );
+    });
+
+    it('logs String(err) when DynamoDB throws a non-Error value', async () => {
+      mockDynamoSend.mockRejectedValueOnce('dynamo-string-error');
+
+      await expect(resolvePartyName('party-123')).rejects.toBe('dynamo-string-error');
+      expect(Logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('DynamoDB GetItem failed'),
+        'dynamo-string-error'
+      );
+    });
+  });
+
+  describe('handler: partyResolver rejects when eventIdentifier is set', () => {
+    it('logs error and re-throws when DynamoDB fails during enrichment', async () => {
+      // S3 returns valid content, then DynamoDB fails
+      mockS3Send.mockResolvedValueOnce({
+        Body: {
+          transformToString: async () =>
+            JSON.stringify({
+              subject: "You've been invited to join <placeholder for the party name>",
+              message: 'Body',
+            }),
+        },
+      });
+      mockDynamoSend.mockRejectedValueOnce(new Error('DynamoDB unavailable'));
+
+      await expect(
+        handler([{
+          email: 'a@b.com',
+          messageObject: { bucket: 'secret-santa-rvw-emails', object: 'invitation.json' },
+          eventIdentifier: 'party-abc',
+        }])
+      ).rejects.toThrow('DynamoDB unavailable');
+
+      expect(Logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('failed to dispatch invitation email'),
+        expect.stringContaining('DynamoDB unavailable')
       );
     });
   });

@@ -8,7 +8,7 @@ jest.mock('@aws-sdk/client-ses', () => ({
 }));
 
 jest.mock('../../src/utils/logger.js', () => ({
-  Logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+  Logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
 }));
 
 import { sendEmail } from '../../src/services/emailSender.js';

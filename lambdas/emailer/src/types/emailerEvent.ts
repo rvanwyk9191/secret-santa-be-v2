@@ -4,4 +4,6 @@ export interface EmailerEvent {
     bucket: string;
     object: string;
   };
+  eventIdentifier?: string;
+  token?: string;
 }

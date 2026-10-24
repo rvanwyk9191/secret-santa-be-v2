@@ -1,4 +1,4 @@
-import { createCheckJwt } from '../../src/auth/auth0.js';
+import { createCheckJwt } from '../../backend/src/auth/auth0.js';
 
 const mockParams: Record<string, string> = {
   '/secret-santa/auth0/domain': 'test.auth0.com',
@@ -7,7 +7,7 @@ const mockParams: Record<string, string> = {
   '/secret-santa/auth0/client_secret': 'test-client-secret',
 };
 
-jest.mock('../../src/utils/config.js', () => ({
+jest.mock('../../backend/src/utils/config.js', () => ({
   getConfigParam: jest.fn().mockImplementation((name: string) =>
     Promise.resolve(mockParams[name])
   ),
@@ -21,7 +21,7 @@ jest.mock('express-jwt', () => ({
   expressjwt: jest.fn(() => jest.fn()),
 }));
 
-jest.mock('../../src/utils/logger.js', () => ({
+jest.mock('../../backend/src/utils/logger.js', () => ({
   Logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }));
 
@@ -31,7 +31,7 @@ describe('Auth0 SSM configuration (unit)', () => {
   });
 
   it('should call getConfigParam for all four required SSM paths', async () => {
-    const { getConfigParam } = await import('../../src/utils/config.js');
+    const { getConfigParam } = await import('../../backend/src/utils/config.js');
     await createCheckJwt();
 
     expect(getConfigParam).toHaveBeenCalledWith('/secret-santa/auth0/domain');
@@ -50,7 +50,7 @@ describe('Auth0 SSM configuration (unit)', () => {
   });
 
   it('should throw when domain is missing from SSM', async () => {
-    const { getConfigParam } = await import('../../src/utils/config.js');
+    const { getConfigParam } = await import('../../backend/src/utils/config.js');
     (getConfigParam as jest.Mock).mockImplementation((name: string) =>
       Promise.resolve(name === '/secret-santa/auth0/domain' ? undefined : mockParams[name])
     );
@@ -61,7 +61,7 @@ describe('Auth0 SSM configuration (unit)', () => {
   });
 
   it('should throw when audience is missing from SSM', async () => {
-    const { getConfigParam } = await import('../../src/utils/config.js');
+    const { getConfigParam } = await import('../../backend/src/utils/config.js');
     (getConfigParam as jest.Mock).mockImplementation((name: string) =>
       Promise.resolve(name === '/secret-santa/auth0/audience' ? undefined : mockParams[name])
     );
@@ -72,7 +72,7 @@ describe('Auth0 SSM configuration (unit)', () => {
   });
 
   it('should throw when client_id is missing from SSM', async () => {
-    const { getConfigParam } = await import('../../src/utils/config.js');
+    const { getConfigParam } = await import('../../backend/src/utils/config.js');
     (getConfigParam as jest.Mock).mockImplementation((name: string) =>
       Promise.resolve(name === '/secret-santa/auth0/client_id' ? undefined : mockParams[name])
     );
@@ -83,7 +83,7 @@ describe('Auth0 SSM configuration (unit)', () => {
   });
 
   it('should throw when client_secret is missing from SSM', async () => {
-    const { getConfigParam } = await import('../../src/utils/config.js');
+    const { getConfigParam } = await import('../../backend/src/utils/config.js');
     (getConfigParam as jest.Mock).mockImplementation((name: string) =>
       Promise.resolve(name === '/secret-santa/auth0/client_secret' ? undefined : mockParams[name])
     );
@@ -91,5 +91,28 @@ describe('Auth0 SSM configuration (unit)', () => {
     await expect(createCheckJwt()).rejects.toThrow(
       'Auth0 client_secret not found in SSM: /secret-santa/auth0/client_secret'
     );
+  });
+
+  // Constitution v1.13: JWT must be read from the access_token cookie, not the Authorization header
+  it('should configure getToken to read JWT from the access_token cookie', async () => {
+    const { getConfigParam } = await import('../../backend/src/utils/config.js');
+    // Re-establish the full mock since previous "should throw" tests override the implementation
+    (getConfigParam as jest.Mock).mockImplementation((name: string) =>
+      Promise.resolve(mockParams[name])
+    );
+
+    const { expressjwt } = await import('express-jwt');
+    await createCheckJwt();
+
+    const callArgs = (expressjwt as jest.Mock).mock.calls[0][0] as Record<string, unknown>;
+    expect(typeof callArgs['getToken']).toBe('function');
+
+    const getToken = callArgs['getToken'] as (req: unknown) => string | undefined;
+
+    const reqWithCookie = { headers: { cookie: 'access_token=unit-test-token' } };
+    expect(getToken(reqWithCookie)).toBe('unit-test-token');
+
+    const reqNoCookies = { headers: {} };
+    expect(getToken(reqNoCookies)).toBeUndefined();
   });
 });

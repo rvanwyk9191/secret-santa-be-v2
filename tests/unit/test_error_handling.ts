@@ -7,10 +7,10 @@
  * 3. The global Express error handler returns HTTP 500 JSON and logs via Logger.error.
  */
 
-import { createParty, getParty } from '../../src/services/partyService.js';
+import { createParty, getParty } from '../../backend/src/services/partyService.js';
 
 // ── Mock Logger ───────────────────────────────────────────────────────────────
-jest.mock('../../src/utils/logger.js', () => ({
+jest.mock('../../backend/src/utils/logger.js', () => ({
   Logger: {
     info: jest.fn(),
     warn: jest.fn(),
@@ -24,7 +24,7 @@ jest.mock('uuid', () => ({
 }));
 
 // ── Mock DynamoDB client — factory uses jest.fn() directly (hoisting safe) ───
-jest.mock('../../src/utils/dynamodb.js', () => ({
+jest.mock('../../backend/src/utils/dynamodb.js', () => ({
   dynamoClient: { send: jest.fn() },
 }));
 
@@ -44,7 +44,7 @@ describe('partyService — DynamoDB error handling', () => {
   let dynamoSend: jest.Mock;
 
   beforeAll(async () => {
-    const { dynamoClient } = await import('../../src/utils/dynamodb.js');
+    const { dynamoClient } = await import('../../backend/src/utils/dynamodb.js');
     dynamoSend = dynamoClient.send as jest.Mock;
   });
 
@@ -55,7 +55,7 @@ describe('partyService — DynamoDB error handling', () => {
   it('logs and re-throws when DynamoDB GetCommand fails during ID generation', async () => {
     dynamoSend.mockRejectedValueOnce(new Error('DynamoDB connection timeout'));
 
-    const { Logger } = await import('../../src/utils/logger.js');
+    const { Logger } = await import('../../backend/src/utils/logger.js');
     await expect(createParty('Test Party', 'admin@example.com')).rejects.toThrow(
       'DynamoDB connection timeout'
     );
@@ -72,7 +72,7 @@ describe('partyService — DynamoDB error handling', () => {
       .mockResolvedValueOnce({ Item: undefined }) // GetCommand — no collision
       .mockRejectedValueOnce(new Error('DynamoDB throughput exceeded'));
 
-    const { Logger } = await import('../../src/utils/logger.js');
+    const { Logger } = await import('../../backend/src/utils/logger.js');
     await expect(createParty('Test Party', 'admin@example.com')).rejects.toThrow(
       'DynamoDB throughput exceeded'
     );
@@ -86,7 +86,7 @@ describe('partyService — DynamoDB error handling', () => {
   it('logs and re-throws when DynamoDB GetCommand fails in getParty', async () => {
     dynamoSend.mockRejectedValueOnce(new Error('DynamoDB unavailable'));
 
-    const { Logger } = await import('../../src/utils/logger.js');
+    const { Logger } = await import('../../backend/src/utils/logger.js');
     await expect(getParty('aaaabbbb')).rejects.toThrow('DynamoDB unavailable');
 
     expect(Logger.error).toHaveBeenCalledWith(
@@ -111,8 +111,8 @@ describe('notificationService — SNS error handling', () => {
   it('logs and re-throws when SNS send fails', async () => {
     mockSnsSend.mockRejectedValueOnce(new Error('SNS service unavailable'));
 
-    const { publishNotification: publish } = await import('../../src/services/notificationService.js');
-    const { Logger } = await import('../../src/utils/logger.js');
+    const { publishNotification: publish } = await import('../../backend/src/services/notificationService.js');
+    const { Logger } = await import('../../backend/src/utils/logger.js');
 
     await expect(
       publish({
@@ -139,7 +139,7 @@ describe('Global Express error handler', () => {
 
   it('returns HTTP 500 JSON and logs the error', async () => {
     const express = await import('express');
-    const { Logger } = await import('../../src/utils/logger.js');
+    const { Logger } = await import('../../backend/src/utils/logger.js');
     const supertest = (await import('supertest')).default;
 
     const app = express.default();

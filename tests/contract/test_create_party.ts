@@ -1,4 +1,4 @@
-import type { Party } from '../../src/models/party.js';
+import type { Party } from '../../backend/src/models/party.js';
 
 /**
  * Contract test for POST /api/parties

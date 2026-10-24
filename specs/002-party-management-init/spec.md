@@ -12,7 +12,7 @@ Build a party-based gift exchange application where users create and manage part
 - Support adding customizable gift details as a blob text field when the party allows customization.
 - Allow users to complete missing profile data (first name, last name) during registration or later.
 - Allow administrators to lock parties and programmatically assign each user a recipient.
-- Use AWS SNS for email notification events.
+- Use an event-driven email architecture: invitation emails are triggered automatically by a DynamoDB Stream on the Invitations table via EventBridge Pipes + Lambda, not published directly by the web app.
 - Align the feature with domain-driven service separation, DynamoDB-backed data stores, and AWS deployment best practices.
 
 ## Architecture alignment
@@ -26,7 +26,7 @@ Build a party-based gift exchange application where users create and manage part
 - Party Administrator: creates a party, invites members, locks the party, and triggers assignments.
 - Invited Participant: receives an invitation, authenticates through Auth0, and joins the party.
 - Auth0 / Google Authenticator: provides authentication and verified email identity.
-- Email Notification System (SNS): delivers event notifications to participants.
+- Email Notification System (EventBridge Pipes + Emailer Lambda): delivers invitation emails triggered by DynamoDB Streams, not by the web app directly.
 
 ## Key Concepts
 
@@ -53,8 +53,12 @@ Build a party-based gift exchange application where users create and manage part
 
 - Administrator can send invites to other people by email.
 - Each invitation is associated with `party_id` and has a secure token.
+- Creating an invitation persists the record to DynamoDB with `status: 'pending'`. The web app does not publish SNS notifications or send emails directly.
+- Invitation email delivery is handled automatically by the event-driven emailer Lambda triggered via DynamoDB Streams and EventBridge Pipes.
 - Links in invitation emails contain the `party_id` and token.
-- Clicking the link leads to an Auth0 login/signup flow.
+- Clicking the link lands on `GET /api/parties/:party_id/invitations/:token`. This endpoint does not require a Bearer token — authentication is handled via the OIDC session cookie:
+  - **Unauthenticated visitor**: the server immediately redirects the browser to the Auth0 Universal Login page (register or sign in). The original invitation URL is stored as `returnTo` so Auth0 redirects back to this endpoint after authentication completes.
+  - **Authenticated visitor** (returned via `returnTo` after login, or already logged in): the server reads the user email from the OIDC session cookie, accepts the invitation, and redirects the browser to the application root (`/`).
 - After Auth0 success, the system associates the user email with the party if the token and party are valid.
 
 ### Auth0 registration and email association
@@ -71,6 +75,19 @@ Build a party-based gift exchange application where users create and manage part
   - first name
   - last name
 - These profile fields must be stored and available for party administration and assignment display.
+- Members can retrieve their own profile at any time. The response includes:
+  - `email`, `party_id`, `role`, `first_name?`, `last_name?`, `joined_at`, `gift_blob?`
+  - This provides the member with a view of their complete profile including any gift list they have submitted.
+
+### Member self-authorization
+
+- A party member MUST only be able to read or modify their own profile and gift data.
+- On all `/api/parties/{party_id}/members/{member_id}/*` routes, the server MUST verify that
+  the decoded `:member_id` URL parameter matches the authenticated user's
+  `registered_user_email` JWT claim (both compared lowercase).
+- If the values do not match, the server MUST respond with **HTTP 403 Forbidden** before any
+  service call is made.
+- This rule applies to `GET /profile`, `PUT /profile`, and `POST /gifts`.
 
 ### Gift customization
 
@@ -87,17 +104,11 @@ Build a party-based gift exchange application where users create and manage part
 - Assignment should ensure each participant is assigned one recipient and a participant is assigned one giver.
 - The assignment process can be automatic (random, valid cycle) or explicit via admin-supplied mapping.
 
-### Email notifications via SNS
+### Email notifications (event-driven)
 
-- Use AWS SNS as the notification service.
-- Publish notifications for at least:
-  - invitation sent
-  - invitation accepted / joined
-  - party locked
-  - assignments completed
-  - gift submission updated (optional)
-- Messages should be delivered to participant emails and optionally to the administrator.
-- SNS can be used to trigger downstream email delivery or webhook integration.
+- Invitation emails are sent automatically by the emailer Lambda, triggered by DynamoDB Streams when a new `pending` Invitation record is inserted.
+- The web app is NOT responsible for sending emails or publishing SNS notifications as part of the invitation flow.
+- Other notification types (invitation accepted, party locked, assignments completed) may be handled by future event-driven handlers on the same pattern.
 
 ## Data Model
 
@@ -176,13 +187,19 @@ This supports querying notification history by party.
 
 - POST `/api/parties/{party_id}/invitations`
 - Request body: `{email}`
-- Behavior: create invitation token, send SNS notification, persist invite.
-- Response: `{invitation_id, token, party_id}`
+- Behavior: create invitation token, persist invite record to DynamoDB with `status: 'pending'`. Email delivery is handled automatically by the event-driven emailer Lambda.
+- Response: `{party_id, email, token}`
 
 ### Accept invitation
 
 - GET `/api/parties/{party_id}/invitations/{token}`
 - Behavior: verify link, redirect through Auth0 login, then associate email with party.
+
+### Get member profile
+
+- GET `/api/parties/{party_id}/members/{member_id}/profile`
+- Authorization: authenticated member whose email matches `:member_id`.
+- Response: full `PartyMember` record `{email, party_id, role, first_name?, last_name?, joined_at, gift_blob?}`.
 
 ### Update profile
 
@@ -221,13 +238,29 @@ This supports querying notification history by party.
   - Client ID: `/secret-santa/auth0/client_id`
   - Client Secret: `/secret-santa/auth0/client_secret`
 - Environment variables MUST NOT be used as the primary source for Auth0 credentials.
-- The `src/auth/auth0.ts` module MUST resolve all four SSM values before constructing the JWT middleware.
-- This is a constitutional requirement and MUST be implemented before any Auth0-protected route is exercised.
+
+### Token Transport
+
+- Bearer tokens MUST NOT be accepted. The `Authorization: Bearer` header MUST NOT be read or
+  validated by any middleware or route handler.
+- After a successful Auth0 login callback, the `access_token` MUST be set as an `HttpOnly`,
+  `Secure`, `SameSite=None` cookie on the response.
+- All protected routes MUST authenticate by extracting and validating the JWT from the
+  `access_token` cookie.
+- User identity and relevant logged-in information MUST be read exclusively from the validated
+  `access_token` JWT payload. The email address of the authenticated user MUST be sourced from
+  `req.auth.payload['registered_user_email']` (populated by the Auth0 Post-Login Action custom claim).
+  Using `req.oidc.user` for identity claim extraction on protected routes is prohibited.
+- `req.oidc` MAY be used only for authentication-state checks (`req.oidc.isAuthenticated()`).
+- The `GET /api/auth/token` endpoint MUST be removed; it returned the token in a JSON body for
+  manual Bearer use, which is prohibited under this model.
+- The `src/auth/auth0.ts` module MUST be updated to replace the `express-jwt` Bearer middleware
+  with a cookie-reading JWT validation middleware (same JWKS/audience/issuer validation).
 
 ## Notification Flow
 
-- Invitation sent: publish SNS event with party and invite metadata.
-- Invite accepted: publish SNS event when user joins the party.
+- Invitation sent: a DynamoDB Stream INSERT event on the `Invitations` table triggers the EventBridge Pipe, which invokes the emailer Lambda to send the invitation email. No SNS publish occurs in the web app.
+- Invite accepted: future event-driven handler (not yet implemented).
 - Party locked: publish SNS event after lock action.
 - Assignment completed: publish SNS event once assignments are generated.
 - Gift details updated: optionally publish SNS event if party customization is enabled.

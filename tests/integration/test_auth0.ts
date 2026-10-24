@@ -1,6 +1,6 @@
-import { createCheckJwt } from '../../src/auth/auth0.js';
+import { createCheckJwt } from '../../backend/src/auth/auth0.js';
 
-jest.mock('../../src/utils/config.js', () => ({
+jest.mock('../../backend/src/utils/config.js', () => ({
   getConfigParam: jest.fn().mockImplementation((name: string) => {
     const params: Record<string, string> = {
       '/secret-santa/auth0/domain': 'integration-test.auth0.com',
@@ -27,7 +27,7 @@ jest.mock('express-jwt', () => ({
   }),
 }));
 
-jest.mock('../../src/utils/logger.js', () => ({
+jest.mock('../../backend/src/utils/logger.js', () => ({
   Logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }));
 
@@ -64,5 +64,32 @@ describe('checkJwt middleware factory (integration)', () => {
         rateLimit: true,
       })
     );
+  });
+
+  // Constitution v1.13: JWT must be read from the access_token cookie, not the Authorization header
+  it('should configure getToken to read JWT from the access_token cookie', async () => {
+    const { expressjwt } = await import('express-jwt');
+    await createCheckJwt();
+
+    const callArgs = (expressjwt as jest.Mock).mock.calls[0][0] as Record<string, unknown>;
+    expect(typeof callArgs['getToken']).toBe('function');
+
+    const getToken = callArgs['getToken'] as (req: unknown) => string | undefined;
+
+    // Should extract token from access_token cookie
+    const reqWithCookie = { headers: { cookie: 'access_token=my-jwt-token' } };
+    expect(getToken(reqWithCookie)).toBe('my-jwt-token');
+
+    // Should handle multiple cookies correctly
+    const reqMultipleCookies = { headers: { cookie: 'other=val; access_token=target-token; extra=ignored' } };
+    expect(getToken(reqMultipleCookies)).toBe('target-token');
+
+    // Should return undefined when no cookies present
+    const reqNoCookies = { headers: {} };
+    expect(getToken(reqNoCookies)).toBeUndefined();
+
+    // Should return undefined when access_token cookie is absent
+    const reqOtherCookies = { headers: { cookie: 'session=abc; other=def' } };
+    expect(getToken(reqOtherCookies)).toBeUndefined();
   });
 });

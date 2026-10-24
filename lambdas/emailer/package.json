@@ -9,6 +9,7 @@
     "package": "npm run build && zip -r emailer.zip dist/ node_modules/"
   },
   "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.0.0",
     "@aws-sdk/client-s3": "^3.0.0",
     "@aws-sdk/client-ses": "^3.0.0"
   },

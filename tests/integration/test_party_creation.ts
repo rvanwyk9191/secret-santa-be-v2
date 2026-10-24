@@ -1,4 +1,4 @@
-import { createParty } from '../../src/services/partyService.js';
+import { createParty } from '../../backend/src/services/partyService.js';
 
 // Mock uuid for a deterministic party_id (constitution v1.6: no real network calls in tests)
 jest.mock('uuid', () => ({
@@ -6,13 +6,13 @@ jest.mock('uuid', () => ({
 }));
 
 // Mock DynamoDB — GetCommand returns no item (no collision), PutCommand succeeds
-jest.mock('../../src/utils/dynamodb.js', () => ({
+jest.mock('../../backend/src/utils/dynamodb.js', () => ({
   dynamoClient: {
     send: jest.fn().mockImplementation(() => Promise.resolve({ Item: undefined })),
   },
 }));
 
-jest.mock('../../src/utils/logger.js', () => ({
+jest.mock('../../backend/src/utils/logger.js', () => ({
   Logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }));
 

@@ -12,4 +12,8 @@ export const Logger = {
   warn(context: string, message?: string): void {
     console.warn(JSON.stringify({ level: 'WARN', context, message: message ?? '' }));
   },
+  debug(context: string, data?: unknown): void {
+    if (process.env['LOG_LEVEL'] !== 'DEBUG') return;
+    console.debug(JSON.stringify({ level: 'DEBUG', context, data }));
+  },
 };

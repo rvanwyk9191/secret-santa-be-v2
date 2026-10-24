@@ -176,18 +176,65 @@ exports.onExecutePostLogin = async (event, api) => {
 
 ---
 
+## Phase 4.9: Emailer Lambda — Invitation Link in Email
+
+**Goal**: Include a fully-constructed, clickable invitation acceptance link in every invitation email sent by the emailer Lambda. The link is built from the `party_id` and `token` delivered by EventBridge (both sourced from the DynamoDB Invitations record) and a configurable base URL. The email body template placeholder is replaced with the real link at send time.
+
+**Link format**: `{INVITATION_BASE_URL}/parties/{party_id}/invitations/{token}`
+**Default base URL**: `https://127.0.0.1/api`
+
+- [x] T025r [LAMBDA] Update `lambdas/emailer/src/types/emailerEvent.ts` — add optional `token?: string` field to `EmailerEvent`
+- [x] T025s [LAMBDA] Update `lambdas/emailer/src/handler.ts` — read `INVITATION_BASE_URL` env var (default `https://127.0.0.1/api`); construct invitation link as `${baseUrl}/parties/${event.eventIdentifier}/invitations/${event.token}` when both are present (empty string fallback if either is missing); replace `<placeholder for link that directs to join the party with the party id>` in the email body with the constructed link
+- [x] T025t [TERRAFORM] Add `invitation_base_url` variable to `terraform/modules/emailer-lambda/variables.tf` with default `https://127.0.0.1/api`
+- [x] T025u [TERRAFORM] Add `INVITATION_BASE_URL = var.invitation_base_url` env var to the Lambda in `terraform/modules/emailer-lambda/main.tf`
+- [x] T025v [TERRAFORM] Update `input_template` in `terraform/modules/emailer-lambda/eventbridge.tf` — add `"token": "<$.dynamodb.NewImage.token.S>"` field to the Pipe's input template so the token from the Invitations stream record is forwarded to the Lambda
+- [x] T025w [P] [LAMBDA] Update `lambdas/emailer/tests/unit/test_handler.ts` — add `token: 'test-invite-token'` to `enrichedEvent` fixture; update the link placeholder assertion to verify the full URL `https://127.0.0.1/api/parties/party-abc/invitations/test-invite-token`; add test for missing token (link placeholder replaced with empty string)
+- [x] T025x [TERRAFORM] `terraform apply` to deploy the EventBridge input template change and Lambda env var
+
+---
+
+## Phase 5.1: Cookie-Based Auth Migration (Constitution v1.13 Compliance)
+
+**Goal**: Replace Bearer token auth with cookie-based JWT validation across all protected routes.
+**Constitutional mandate**: Bearer tokens MUST NOT be accepted; `access_token` MUST be stored as
+an `HttpOnly`/`Secure`/`SameSite=None` cookie after login and read from the cookie on each request.
+
+- [X] T033a [AUTH] Update `src/auth/authRouter.ts` — in the OIDC callback, set the `access_token` as an `HttpOnly`, `Secure`, `SameSite=None` cookie (name: `access_token`) on the response before redirecting after successful login. Remove or repurpose `GET /api/auth/token` so it no longer returns the token in a JSON body.
+- [X] T033b [AUTH] Update `src/auth/auth0.ts` — replace the `express-jwt` Bearer middleware with a cookie-reading JWT validation middleware. The middleware MUST extract the JWT from the `access_token` cookie and validate its signature (JWKS), audience, and issuer identically to the prior `express-jwt` setup. Remove the `express-jwt` and `jwks-rsa` Bearer configuration.
+- [X] T033c [CONTROLLER] Update `src/controllers/index.ts` — replace `router.use(checkJwt)` with the new cookie-based JWT middleware from T033b. Confirm `registrationRouter` remains before the auth middleware (unauthenticated magic-link entry point).
+- [X] T033d [CONTROLLER] Update `src/controllers/partyController.ts` — replace `(req as any).auth?.payload?.['registered_user_email']` with `req.oidc.user?.email` (OIDC session) or the equivalent claim from the validated cookie JWT payload.
+- [X] T033e [CONTROLLER] Update `src/controllers/invitationController.ts` — same claim source migration as T033d.
+- [X] T033f [P] [TEST] Update `tests/unit/test_auth_router.ts` — update or remove tests that cover `GET /api/auth/token` returning a JSON token body; add tests for the cookie-setting behaviour after the callback.
+- [X] T033g [P] [TEST] Update any integration tests that mock or supply a Bearer JWT — replace with cookie-based auth mocking consistent with the new middleware.
+
+---
+
+## Phase 5.2: JWT Payload Claim Extraction (Constitution v1.14 Compliance)
+
+**Goal**: Ensure all protected routes read user identity exclusively from the validated `access_token`
+JWT payload rather than from the OIDC session.
+**Constitutional mandate**: Email and all relevant user identity claims MUST be read from
+`req.auth.payload['registered_user_email']` (Auth0 Post-Login Action custom claim). Using
+`req.oidc.user` for identity extraction on protected routes is prohibited (constitution v1.14).
+
+- [X] T034a [CONTROLLER] Update `src/controllers/partyController.ts` — revert the T033d change; read the admin email from `(req as any).auth?.payload?.['registered_user_email']` (the JWT payload custom claim set by the Auth0 Post-Login Action). Do not use `req.oidc.user?.email`.
+- [X] T034b [CONTROLLER] Update `src/controllers/invitationController.ts` — same claim source correction as T034a.
+- [X] T034c [P] [TEST] Update integration/contract tests that mock or assert the admin email claim — ensure they inject `registered_user_email` via the mocked `expressjwt` payload (`req.auth.payload`) rather than via `req.oidc.user`.
+
+---
+
 ## Phase 5: User Story 3 - Invitation Acceptance & Registration (Priority: P2)
 
 **Goal**: Allow invited users to register/sign in via Auth0 and join the party.
 **Independent Test**: User can join a party using a valid invitation link and Auth0 authentication.
 
-- [ ] T026 [P] [US3] Contract test for GET /api/parties/{party_id}/invitations/{token} in tests/contract/test_accept_invite.ts
-- [ ] T027 [P] [US3] Integration test for invitation acceptance in tests/integration/test_accept_invite.ts
-- [ ] T028 [P] [US3] Implement PartyMember model in src/models/partyMember.ts
-- [ ] T029 [US3] Implement registration/acceptance service in src/services/registrationService.ts
-- [ ] T030 [US3] Implement GET /api/parties/{party_id}/invitations/{token} endpoint in src/controllers/registrationController.ts
-- [ ] T031 [US3] Add validation and error handling for registration
-- [ ] T032 [US3] Add logging for registration operations
+- [x] T026 [P] [US3] Contract test for GET /api/parties/{party_id}/invitations/{token} in tests/contract/test_accept_invite.ts
+- [x] T027 [P] [US3] Integration test for invitation acceptance in tests/integration/test_accept_invite.ts
+- [x] T028 [P] [US3] Implement PartyMember model in src/models/partyMember.ts
+- [x] T029 [US3] Implement registration/acceptance service in src/services/registrationService.ts
+- [x] T030 [US3] Implement GET /api/parties/{party_id}/invitations/{token} endpoint in src/controllers/registrationController.ts
+- [x] T031 [US3] Add validation and error handling for registration
+- [x] T032 [US3] Add logging for registration operations
 
 ---
 
@@ -196,15 +243,35 @@ exports.onExecutePostLogin = async (event, api) => {
 **Goal**: Allow users to update missing profile fields and add gift details if enabled.
 **Independent Test**: User can update blank profile fields and submit a gift blob if allowed.
 
-- [ ] T033 [P] [US4] Contract test for PUT /api/parties/{party_id}/members/{member_id}/profile in tests/contract/test_update_profile.ts
-- [ ] T034 [P] [US4] Contract test for POST /api/parties/{party_id}/members/{member_id}/gifts in tests/contract/test_gift_blob.ts
-- [ ] T035 [P] [US4] Integration test for profile/gift update in tests/integration/test_profile_gift.ts
-- [ ] T036 [P] [US4] Implement profile update service in src/services/profileService.ts
-- [ ] T037 [P] [US4] Implement gift blob service in src/services/giftService.ts
-- [ ] T038 [US4] Implement PUT /api/parties/{party_id}/members/{member_id}/profile endpoint in src/controllers/profileController.ts
-- [ ] T039 [US4] Implement POST /api/parties/{party_id}/members/{member_id}/gifts endpoint in src/controllers/giftController.ts
-- [ ] T040 [US4] Add validation and error handling for profile/gift
-- [ ] T041 [US4] Add logging for profile/gift operations
+- [X] T033 [P] [US4] Contract test for PUT /api/parties/{party_id}/members/{member_id}/profile in tests/contract/test_update_profile.ts
+- [X] T034 [P] [US4] Contract test for POST /api/parties/{party_id}/members/{member_id}/gifts in tests/contract/test_gift_blob.ts
+- [X] T035 [P] [US4] Integration test for profile/gift update in tests/integration/test_profile_gift.ts
+- [X] T036 [P] [US4] Implement profile update service in src/services/profileService.ts
+- [X] T037 [P] [US4] Implement gift blob service in src/services/giftService.ts
+- [X] T038 [US4] Implement PUT /api/parties/{party_id}/members/{member_id}/profile endpoint in src/controllers/profileController.ts
+- [X] T039 [US4] Implement POST /api/parties/{party_id}/members/{member_id}/gifts endpoint in src/controllers/giftController.ts
+- [X] T040 [US4] Add validation and error handling for profile/gift
+- [X] T041 [US4] Add logging for profile/gift operations
+
+---
+
+## Phase 6.1: Member Profile Retrieval & Self-Authorization (Constitution v1.15 Compliance)
+
+**Goal**: Allow a party member to retrieve their own full profile (including the gift blob they
+submitted). Codify and verify that all member-scoped mutation routes (`PUT /profile`,
+`POST /gifts`) enforce the Member Self-Authorization principle from constitution v1.15 —
+the authenticated user's email MUST match the `:member_id` URL parameter.
+
+**Constitutional mandate**: Every `/api/parties/{party_id}/members/{member_id}/*` route MUST
+compare `decodeURIComponent(member_id).toLowerCase()` against
+`req.auth.payload['registered_user_email'].toLowerCase()` and return **403** on mismatch,
+before any service call.
+
+- [X] T041a [P] [US4] Contract test for GET /api/parties/{party_id}/members/{member_id}/profile in `tests/contract/test_get_profile.ts` — assert response shape `{email, party_id, role, joined_at}` with optional `first_name`, `last_name`, `gift_blob`
+- [X] T041b [P] [US4] Integration test for GET profile and self-authorization enforcement in `tests/integration/test_profile_gift.ts` — add: GET profile success (mocked DynamoDB GetCommand), GET 404 when member not found, GET 403 when caller email ≠ member_id (controller-level), PUT 403 when caller email ≠ member_id, POST gifts 403 when caller email ≠ member_id
+- [X] T041c [US4] Implement `getProfile(partyId, email)` in `src/services/profileService.ts` — single DynamoDB GetCommand; return the PartyMember record; throw 404 if not found
+- [X] T041d [US4] Implement GET `/api/parties/:party_id/members/:member_id/profile` in `src/controllers/profileController.ts` — enforce Member Self-Authorization (403 on mismatch); call `getProfile`; return HTTP 200 with full PartyMember record
+- [X] T041e [P] [US4] Verify Member Self-Authorization is enforced in `profileController.ts` (PUT) and `giftController.ts` (POST) — add targeted integration test assertions that a mismatched caller email produces HTTP 403 before the service is called
 
 ---
 
@@ -213,26 +280,26 @@ exports.onExecutePostLogin = async (event, api) => {
 **Goal**: Allow administrators to lock the party and assign users programmatically.
 **Independent Test**: Party can be locked and assignments generated, with notifications sent.
 
-- [ ] T042 [P] [US5] Contract test for POST /api/parties/{party_id}/lock in tests/contract/test_lock_party.ts
-- [ ] T043 [P] [US5] Contract test for POST /api/parties/{party_id}/assignments in tests/contract/test_assignments.ts
-- [ ] T044 [P] [US5] Integration test for locking/assignment in tests/integration/test_lock_assign.ts
-- [ ] T045 [P] [US5] Implement assignment model in src/models/assignment.ts
-- [ ] T046 [US5] Implement party locking service in src/services/partyLockService.ts
-- [ ] T047 [US5] Implement assignment service in src/services/assignmentService.ts
-- [ ] T048 [US5] Implement POST /api/parties/{party_id}/lock endpoint in src/controllers/partyLockController.ts
-- [ ] T049 [US5] Implement POST /api/parties/{party_id}/assignments endpoint in src/controllers/assignmentController.ts
-- [ ] T050 [US5] Integrate AWS SNS for notifications in src/services/notificationService.ts
-- [ ] T051 [US5] Add validation and error handling for locking/assignment
-- [ ] T052 [US5] Add logging for locking/assignment operations
+- [X] T042 [P] [US5] Contract test for POST /api/parties/{party_id}/lock in tests/contract/test_lock_party.ts
+- [X] T043 [P] [US5] Contract test for POST /api/parties/{party_id}/assignments in tests/contract/test_assignments.ts
+- [X] T044 [P] [US5] Integration test for locking/assignment in tests/integration/test_lock_assign.ts
+- [X] T045 [P] [US5] Implement assignment model in src/models/assignment.ts
+- [X] T046 [US5] Implement party locking service in src/services/partyLockService.ts
+- [X] T047 [US5] Implement assignment service in src/services/assignmentService.ts
+- [X] T048 [US5] Implement POST /api/parties/{party_id}/lock endpoint in src/controllers/partyLockController.ts
+- [X] T049 [US5] Implement POST /api/parties/{party_id}/assignments endpoint in src/controllers/assignmentController.ts
+- [X] T050 [US5] Integrate AWS SNS for notifications in src/services/notificationService.ts
+- [X] T051 [US5] Add validation and error handling for locking/assignment
+- [X] T052 [US5] Add logging for locking/assignment operations
 
 ---
 
 ## Phase 8: Polish & Cross-Cutting Concerns
 
-- [ ] T053 Review and update OpenAPI specs for all endpoints
-- [ ] T054 [P] Add/Update documentation in README.md and relevant docs/
-- [ ] T055 [P] Refactor code for maintainability and best practices
-- [ ] T056 [P] Finalize Terraform infrastructure and environment variables
+- [x] T053 Review and update OpenAPI specs for all endpoints
+- [x] T054 [P] Add/Update documentation in README.md and relevant docs/
+- [x] T055 [P] Refactor code for maintainability and best practices
+- [x] T056 [P] Finalize Terraform infrastructure and environment variables
 - [ ] T057 [P] Conduct end-to-end testing and QA
 - [ ] T058 [P] Prepare deployment scripts and CI/CD pipeline
 

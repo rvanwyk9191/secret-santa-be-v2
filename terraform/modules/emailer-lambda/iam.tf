@@ -49,6 +49,12 @@ resource "aws_iam_role_policy" "emailer_lambda" {
           "logs:PutLogEvents"
         ]
         Resource = "arn:aws:logs:${var.aws_region}:*:log-group:/aws/lambda/secret-santa-emailer-${var.environment}:*"
+      },
+      {
+        Sid      = "DynamoDBGetParty"
+        Effect   = "Allow"
+        Action   = "dynamodb:GetItem"
+        Resource = var.parties_table_arn
       }
     ]
   })

@@ -9,7 +9,9 @@
   "scripts": {
     "test": "jest",
     "build": "npx tsc && echo \"Build complete.\"",
-    "start": "tsx src/controllers/index.ts"
+    "start": "concurrently -k -n backend,frontend \"npm run start:backend\" \"npm run start:frontend\"",
+    "start:backend": "tsx backend/src/controllers/index.ts",
+    "start:frontend": "npm --prefix frontend run dev"
   },
   "repository": {
     "type": "git",
@@ -27,6 +29,7 @@
     "@types/jest": "^30.0.0",
     "@types/supertest": "^7.2.0",
     "@types/uuid": "^11.0.0",
+    "concurrently": "^10.0.6",
     "eslint": "^10.2.0",
     "prettier": "^3.8.3",
     "supertest": "^7.2.2",

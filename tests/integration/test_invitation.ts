@@ -1,12 +1,20 @@
-import { createInvitation } from '../../src/services/invitationService';
+import { createInvitation } from '../../backend/src/services/invitationService';
 
-jest.mock('../../src/services/notificationService', () => ({
-  publishNotification: jest.fn().mockResolvedValue(undefined),
+jest.mock('uuid', () => ({
+  v4: jest.fn(() => 'test-token-uuid-1234'),
+}));
+
+jest.mock('../../backend/src/utils/dynamodb.js', () => ({
+  dynamoClient: { send: jest.fn().mockResolvedValue({}) },
+}));
+
+jest.mock('../../backend/src/utils/logger.js', () => ({
+  Logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }));
 
 describe('Invitation creation integration', () => {
   it('should create an invitation with a token and pending status', async () => {
-    const invitation = await createInvitation('party-123', 'participant@example.com', 'admin@example.com');
+    const invitation = await createInvitation('party-123', 'participant@example.com');
 
     expect(invitation.party_id).toBe('party-123');
     expect(invitation.email).toBe('participant@example.com');

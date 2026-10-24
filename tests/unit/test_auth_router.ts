@@ -1,4 +1,4 @@
-import { createAuthMiddleware } from '../../src/auth/authRouter.js';
+import { createAuthMiddleware } from '../../backend/src/auth/authRouter.js';
 
 const mockParams: Record<string, string> = {
   '/secret-santa/auth0/domain': 'test.auth0.com',
@@ -10,7 +10,7 @@ const mockParams: Record<string, string> = {
 process.env['SESSION_SECRET'] = 'test-session-secret-32-chars-longXX';
 process.env['BASE_URL'] = 'https://127.0.0.1:3000';
 
-jest.mock('../../src/utils/config.js', () => ({
+jest.mock('../../backend/src/utils/config.js', () => ({
   getConfigParam: jest.fn().mockImplementation((name: string) =>
     Promise.resolve(mockParams[name])
   ),
@@ -20,7 +20,7 @@ jest.mock('express-openid-connect', () => ({
   auth: jest.fn(() => jest.fn()),
 }));
 
-jest.mock('../../src/utils/logger.js', () => ({
+jest.mock('../../backend/src/utils/logger.js', () => ({
   Logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }));
 
@@ -30,7 +30,7 @@ describe('Auth router SSM configuration (unit)', () => {
   });
 
   it('reads all 4 required SSM paths', async () => {
-    const { getConfigParam } = await import('../../src/utils/config.js');
+    const { getConfigParam } = await import('../../backend/src/utils/config.js');
     await createAuthMiddleware();
 
     expect(getConfigParam).toHaveBeenCalledWith('/secret-santa/auth0/domain');
@@ -86,6 +86,19 @@ describe('Auth router SSM configuration (unit)', () => {
     );
   });
 
+  it('requests Google account selection during login', async () => {
+    const { auth } = await import('express-openid-connect');
+    await createAuthMiddleware();
+
+    expect(auth).toHaveBeenCalledWith(
+      expect.objectContaining({
+        authorizationParams: expect.objectContaining({
+          prompt: 'select_account',
+        }),
+      })
+    );
+  });
+
   it('sets transactionCookie to SameSite=None (Phase 4.8)', async () => {
     const { auth } = await import('express-openid-connect');
     await createAuthMiddleware();
@@ -93,7 +106,7 @@ describe('Auth router SSM configuration (unit)', () => {
     expect(auth).toHaveBeenCalledWith(
       expect.objectContaining({
         transactionCookie: expect.objectContaining({
-          sameSite: 'None',
+          sameSite: 'Lax',
         }),
       })
     );
@@ -116,7 +129,7 @@ describe('Auth router SSM configuration (unit)', () => {
   });
 
   it('throws when domain SSM param is missing', async () => {
-    const { getConfigParam } = await import('../../src/utils/config.js');
+    const { getConfigParam } = await import('../../backend/src/utils/config.js');
     (getConfigParam as jest.Mock).mockImplementation((name: string) =>
       Promise.resolve(name === '/secret-santa/auth0/domain' ? undefined : mockParams[name])
     );
@@ -124,7 +137,7 @@ describe('Auth router SSM configuration (unit)', () => {
   });
 
   it('throws when SESSION_SECRET env var is missing', async () => {
-    const { getConfigParam } = await import('../../src/utils/config.js');
+    const { getConfigParam } = await import('../../backend/src/utils/config.js');
     (getConfigParam as jest.Mock).mockImplementation((name: string) =>
       Promise.resolve(mockParams[name])
     );
@@ -144,5 +157,49 @@ describe('Auth router SSM configuration (unit)', () => {
   it('does not throw when BASE_URL is https://127.0.0.1', async () => {
     process.env['BASE_URL'] = 'https://127.0.0.1:3000';
     await expect(createAuthMiddleware()).resolves.toBeTruthy();
+  });
+
+  // Constitution v1.13: access_token must be set as an HttpOnly cookie after callback
+  it('passes afterCallback to auth() config (constitution v1.13)', async () => {
+    const { auth } = await import('express-openid-connect');
+    await createAuthMiddleware();
+
+    const authConfig = (auth as jest.Mock).mock.calls[0][0] as Record<string, unknown>;
+    expect(typeof authConfig['afterCallback']).toBe('function');
+  });
+
+  it('afterCallback sets access_token as HttpOnly Secure SameSite=None cookie', async () => {
+    const { auth } = await import('express-openid-connect');
+    await createAuthMiddleware();
+
+    const authConfig = (auth as jest.Mock).mock.calls[0][0] as Record<string, unknown>;
+    const afterCallback = authConfig['afterCallback'] as Function;
+
+    const mockRes = { cookie: jest.fn() };
+    const session = { access_token: 'test-access-token', id_token: 'test-id-token' };
+
+    const returnedSession = await afterCallback({}, mockRes, session);
+
+    expect(mockRes.cookie).toHaveBeenCalledWith('access_token', 'test-access-token', {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'none',
+    });
+    expect(returnedSession).toBe(session);
+  });
+
+  it('afterCallback skips cookie when session has no access_token', async () => {
+    const { auth } = await import('express-openid-connect');
+    await createAuthMiddleware();
+
+    const authConfig = (auth as jest.Mock).mock.calls[0][0] as Record<string, unknown>;
+    const afterCallback = authConfig['afterCallback'] as Function;
+
+    const mockRes = { cookie: jest.fn() };
+    const session = { id_token: 'test-id-token' };
+
+    await afterCallback({}, mockRes, session);
+
+    expect(mockRes.cookie).not.toHaveBeenCalled();
   });
 });

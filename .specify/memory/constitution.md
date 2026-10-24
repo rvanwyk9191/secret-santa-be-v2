@@ -1,25 +1,34 @@
 <!--
 ## Sync Impact Report
 
-**Version change**: 1.7 → 1.8
-**Bump rationale**: MINOR — `### Event-Driven Apps` expanded with full specification for the
-"emailer" Lambda: input contract, S3 message resolution, EventBridge filter/trigger rules,
-Terraform ownership, TypeScript build requirements, and project directory placement.
+**Version change**: 1.13 → 1.14
+**Bump rationale**: PATCH — Token Transport principle clarified: user identity claims MUST be read
+exclusively from the validated `access_token` JWT payload (`payload.registered_user_email`).
+Reading from `req.oidc.user` is explicitly prohibited for identity claims.
 
 ### Modified principles
-- `### Event-Driven Apps` — added Lambda placement rule + full emailer subsection.
+- `#### Token Transport: Cookie-Only` — removed ambiguous “or from `req.oidc.user`” wording;
+  replaced with mandatory `payload.registered_user_email` claim path.
 
 ### Added sections
-- `#### Lambda: emailer` under Event-Driven Apps.
+- None.
 
 ### Removed sections
 - None.
 
 ### Templates requiring updates
-- ⚠️ .specify/templates/tasks-template.md — Add Lambda/Event-Driven task type guidance to
-  Phase 2 section when a new Lambda feature spec is started.
+- ✅ .specify/memory/constitution.md — updated.
+- ⚠️ specs/002-party-management-init/spec.md — Token Transport section needs same clarification.
+- ⚠️ specs/002-party-management-init/tasks.md — New tasks T034a–T034c to revert controllers
+  from `req.oidc.user?.email` to `req.auth?.payload?.['registered_user_email']`.
 
 ### Previous amendments
+- 1.12 → 1.13 (2026-04-24): Cookie-only auth mandate (Token Transport principle added).
+- 1.11 → 1.12 (2026-04-24): Lambda Fire-and-Forget principle added.
+- 1.10 → 1.11 (2026-04-24): Emailer input contract updated with token + invitation link section.
+- 1.9 → 1.10 (2026-04-24): Extended Lambda Retry Policy to cover EventBridge Pipe source retry.
+- 1.8 → 1.9 (2026-04-24): Lambda Retry Policy principle added.
+- 1.7 → 1.8 (2026-04-23): Event-Driven Apps principle added with emailer Lambda detail.
 - 1.6 → 1.7 (2026-04-23): Event-Driven Apps principle added.
 - 1.5 → 1.6 (2026-04-22): Mocking principle added to Testing Requirements.
 - 1.4 → 1.5 (2026-04-22): Error Handling principle added.
@@ -71,6 +80,59 @@ Auth0 MUST be used as the authentication mechanism for all resources. Auth0 conf
 
 Environment variables MUST NOT be used as the primary source for Auth0 credentials. Hardcoded fallback values are prohibited.
 
+#### Token Transport: Cookie-Only
+
+Bearer tokens MUST NOT be accepted on any route. The `Authorization: Bearer` header MUST NOT be
+read or validated by any middleware or route handler.
+
+After a successful Auth0 login (i.e., at the end of the OIDC callback), the `access_token` MUST be
+stored in an `HttpOnly`, `Secure`, `SameSite=None` cookie. All subsequent authenticated requests
+MUST present the `access_token` cookie; the server MUST extract and validate the JWT from that
+cookie.
+
+- `express-jwt` configured to read from `Authorization: Bearer` MUST NOT be used.
+- A cookie-reading JWT validation middleware MUST replace it. The middleware MUST validate the
+  token's signature (JWKS), audience, and issuer identically to how `express-jwt` did, but source
+  the token from the cookie, not the `Authorization` header.
+- The `GET /api/auth/token` endpoint that returned tokens in a JSON response body (for manual Bearer
+  use) MUST be removed or repurposed — it MUST NOT return tokens in a way that enables Bearer usage.
+- User identity and other relevant claims MUST be read exclusively from the validated `access_token`
+  JWT payload. The email address of the logged-in user MUST be sourced from
+  `req.auth.payload['registered_user_email']` (set by the Auth0 Post-Login Action). Reading identity
+  from `req.oidc.user` (OIDC session) is **prohibited** for claim extraction on protected routes.
+- `req.oidc` (OIDC session) MAY be used only for checking authentication state
+  (`req.oidc.isAuthenticated()`), not for extracting user identity claims.
+
+**Rationale**: Cookie-based token transport is more secure for browser clients. `HttpOnly` cookies
+are inaccessible to JavaScript, eliminating XSS-based token theft. The server controls token
+lifetime via cookie expiry and can invalidate sessions without client coordination.
+
+#### Member Self-Authorization
+
+A party member MUST only be able to read or modify their own profile and gift data. On every
+route matching `/api/parties/{party_id}/members/{member_id}/*`, the server MUST enforce the
+following check before invoking any service:
+
+1. Decode `req.params.member_id` with `decodeURIComponent` and lowercase it.
+2. Read the authenticated user's email from
+   `req.auth.payload['registered_user_email']` and lowercase it.
+3. If the two values do not match, respond immediately with **HTTP 403 Forbidden** and
+   do not proceed to any service call.
+
+This applies to all operations on member-scoped routes:
+- `GET /api/parties/{party_id}/members/{member_id}/profile`
+- `PUT /api/parties/{party_id}/members/{member_id}/profile`
+- `POST /api/parties/{party_id}/members/{member_id}/gifts`
+
+Administrative routes that act on behalf of a different member (e.g., viewing another
+member's profile for party management purposes) MUST use a separate, explicitly admin-guarded
+route and MUST NOT reuse the member-scoped routes above.
+
+**Rationale**: A member's profile and gift list contain personal preference information that
+should only be accessible and editable by the owner. Relying solely on `party_id` membership
+would allow one member to overwrite another member's data using a valid token — the URL
+parameter MUST be validated against the token claim on every request.
+
 ### Security
 HTTPS MUST be used for all network communication in deployed environments. HTTP MUST NOT be used.
 - The ALB MUST be configured with an HTTPS listener. Any HTTP traffic MUST be redirected to HTTPS at the ALB level.
@@ -95,6 +157,24 @@ operations triggered asynchronously. Keeping each function single-purpose and in
 built ensures minimal blast radius on failure, faster cold starts, and clear separation of
 deployment ownership.
 
+#### Lambda: Fire-and-Forget (EventBridge-triggered)
+
+Every Lambda function triggered via an EventBridge Pipe MUST be configured as fire-and-forget.
+AWS MUST invoke the Lambda exactly once; no automatic retries are permitted at any layer.
+
+The following MUST be set via Terraform for every EventBridge-triggered Lambda:
+
+- `aws_lambda_function_event_invoke_config.maximum_retry_attempts` MUST be **0**.
+- `dynamodb_stream_parameters.maximum_retry_attempts` (or the equivalent field on other Pipe source
+  types — `sqs_queue_parameters`, `kinesis_stream_parameters`, etc.) MUST be **0**.
+- Dead-letter queues and on-failure destinations MUST NOT be configured on EventBridge-triggered
+  Lambdas (they would contradict the fire-and-forget contract).
+
+**Rationale**: EventBridge-triggered Lambdas in this project drive side effects (email delivery,
+notifications). Retrying side-effect operations after a transient failure risks duplicate sends and
+message storms. Fail fast, surface the error immediately, and let observability tooling alert on
+failures rather than masking them with silent retries.
+
 #### Lambda: emailer
 
 **Purpose**: Sends transactional emails triggered by new invitation records in DynamoDB.
@@ -111,10 +191,24 @@ deployment ownership.
   "messageObject": {
     "bucket": "<S3 bucket name>",
     "object": "<S3 object path and file name>"
-  }
+  },
+  "eventIdentifier": "<party_id from the Invitation record>",
+  "token": "<invitation token from the Invitation record>"
 }
 ```
 Use placeholder values for `bucket` and `object` until real S3 resources are provisioned.
+
+**Invitation link construction**: The Lambda MUST construct a clickable acceptance link and substitute
+it into the email body. The link format is:
+```
+{INVITATION_BASE_URL}/parties/{eventIdentifier}/invitations/{token}
+```
+- `INVITATION_BASE_URL` is read from the Lambda environment variable of the same name.
+  Default value: `https://127.0.0.1/api`.
+- The placeholder string `<placeholder for link that directs to join the party with the party id>`
+  in the email body MUST be replaced with the fully-constructed link.
+- If either `eventIdentifier` or `token` is absent the placeholder is replaced with an empty string
+  and a warning is logged.
 
 **S3 message resolution**: On invocation the Lambda MUST perform an S3 `GetObject` call using
 `messageObject.bucket` and `messageObject.object` to retrieve the email content. The S3 object
@@ -127,8 +221,12 @@ and sends the email to the address supplied in `email`.
   Invitations table stream).
 - Filter: MUST match only events where the record is a **new insert** (`eventName = INSERT`)
   AND the `status` field on the new image equals `"pending"`.
-- When the filter matches, EventBridge passes `email` (from `Invitation.email`) and
-  `messageObject` (placeholder S3 coordinates) to the Lambda invocation payload.
+- When the filter matches, EventBridge passes the following fields to the Lambda invocation
+  payload via the Pipe's `input_template`:
+  - `email` — from `$.dynamodb.NewImage.email.S`
+  - `messageObject` — static S3 coordinates (`bucket`, `object`)
+  - `eventIdentifier` — from `$.dynamodb.NewImage.party_id.S`
+  - `token` — from `$.dynamodb.NewImage.token.S`
 
 **Infrastructure ownership**:
 - The EventBridge rule MUST be created and managed by Terraform.
@@ -224,4 +322,4 @@ Route 53 will connect to the ALB which will handle load balancing on the traffic
 ### Target Group Routing
 Target groups will be created and will use the smallest instance of EC2 available. Prefer general performance. Prefer free tier eligible. Standard health checks are fine.
 
-**Version**: 1.8 | **Ratified**: 2026-04-17 | **Last Amended**: 2026-04-23
+**Version**: 1.15 | **Ratified**: 2026-04-17 | **Last Amended**: 2026-04-24
