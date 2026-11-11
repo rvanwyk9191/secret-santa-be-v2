@@ -60,6 +60,7 @@ function makeEntry(overrides: Partial<HostedPartyEntry> = {}): HostedPartyEntry 
     party: baseParty,
     members: [{ member: baseMember }],
     assigned: false,
+    pendingInvitees: [],
     ...overrides,
   };
 }
@@ -82,15 +83,16 @@ describe('HostedPartyPanel', () => {
     expect(screen.getByRole('button', { name: /unlock the party/i })).toBeInTheDocument();
   });
 
-  it('calls lockParty and updates button label to "Unlock the Party"', async () => {
+  it('calls lockParty and refreshes the party data', async () => {
     const user = userEvent.setup();
+    const onRefresh = jest.fn();
     mockLock.mockResolvedValueOnce({ ...baseParty, locked: true });
-    render(<HostedPartyPanel entry={makeEntry()} onRefresh={jest.fn()} />);
+    render(<HostedPartyPanel entry={makeEntry()} onRefresh={onRefresh} />);
     await user.click(screen.getByRole('button', { name: /lock the party/i }));
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: /unlock the party/i })).toBeInTheDocument()
-    );
-    expect(mockLock).toHaveBeenCalledWith('p1');
+    await waitFor(() => {
+      expect(mockLock).toHaveBeenCalledWith('p1');
+      expect(onRefresh).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('calls unlockParty and updates button label to "Lock the Party"', async () => {
@@ -109,15 +111,16 @@ describe('HostedPartyPanel', () => {
     expect(screen.getByRole('button', { name: /auto-assign/i })).toBeInTheDocument();
   });
 
-  it('calls createAssignments and switches to "Re-Assign"', async () => {
+  it('calls createAssignments and refreshes the party data', async () => {
     const user = userEvent.setup();
+    const onRefresh = jest.fn();
     mockAssign.mockResolvedValueOnce([]);
-    render(<HostedPartyPanel entry={makeEntry()} onRefresh={jest.fn()} />);
+    render(<HostedPartyPanel entry={makeEntry()} onRefresh={onRefresh} />);
     await user.click(screen.getByRole('button', { name: /auto-assign/i }));
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: /re-assign/i })).toBeInTheDocument()
-    );
-    expect(mockAssign).toHaveBeenCalledWith('p1', { mode: 'automatic' });
+    await waitFor(() => {
+      expect(mockAssign).toHaveBeenCalledWith('p1', { mode: 'automatic' });
+      expect(onRefresh).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('"Email Members" is disabled when party is not locked', () => {
@@ -150,15 +153,16 @@ describe('HostedPartyPanel', () => {
     expect(screen.getByRole('button', { name: /enable custom/i })).toBeInTheDocument();
   });
 
-  it('calls updateParty and toggles to "Disable Custom"', async () => {
+  it('calls updateParty and refreshes the party data', async () => {
     const user = userEvent.setup();
+    const onRefresh = jest.fn();
     mockUpdate.mockResolvedValueOnce({ ...baseParty, customizationEnabled: true });
-    render(<HostedPartyPanel entry={makeEntry()} onRefresh={jest.fn()} />);
+    render(<HostedPartyPanel entry={makeEntry()} onRefresh={onRefresh} />);
     await user.click(screen.getByRole('button', { name: /enable custom/i }));
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: /disable custom/i })).toBeInTheDocument()
-    );
-    expect(mockUpdate).toHaveBeenCalledWith('p1', { customizationEnabled: true });
+    await waitFor(() => {
+      expect(mockUpdate).toHaveBeenCalledWith('p1', { customizationEnabled: true });
+      expect(onRefresh).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('renders one MemberRow per member', () => {

@@ -76,7 +76,7 @@ pendingInvitesRouter.get(
               party_id: inv.party_id,
               party_name: party?.name ?? inv.party_id,
               admin_email: party?.admin_email ?? '',
-              party_date: party?.party_date,
+              ...(party?.party_date !== undefined ? { party_date: party.party_date } : {}),
               token: inv.token,
               sent_at: inv.sent_at,
             };
