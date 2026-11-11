@@ -32,10 +32,12 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             frontend/package-lock.json
+            lambdas/emailer/package-lock.json
       - name: Install Locked Dependencies
         run: |
           npm ci --include=dev
           npm --prefix frontend ci --include=dev
+          npm --prefix lambdas/emailer ci --include=dev
       - name: Validate Deployment Scripts
         run: |
           bash -n terraform/scripts/bootstrap-ec2.sh

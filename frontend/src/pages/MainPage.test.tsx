@@ -6,6 +6,7 @@ import MainPage from './MainPage';
 jest.mock('../api/partyApi', () => ({
   getMyParties: jest.fn(),
   getMyHostedParties: jest.fn(),
+  getMyPendingInvites: jest.fn(),
 }));
 
 // Mock child components to isolate MainPage logic
@@ -33,10 +34,11 @@ jest.mock('../components/modals/CreateAParty', () => ({
     ) : null,
 }));
 
-import { getMyParties, getMyHostedParties } from '../api/partyApi';
+import { getMyParties, getMyHostedParties, getMyPendingInvites } from '../api/partyApi';
 
 const mockGetMyParties = getMyParties as jest.MockedFunction<typeof getMyParties>;
 const mockGetMyHostedParties = getMyHostedParties as jest.MockedFunction<typeof getMyHostedParties>;
+const mockGetMyPendingInvites = getMyPendingInvites as jest.MockedFunction<typeof getMyPendingInvites>;
 
 const memberPartyFixture = [
   {
@@ -73,12 +75,14 @@ const hostedPartyFixture = [
     },
     members: [],
     assigned: false,
+    pendingInvitees: [],
   },
 ];
 
 describe('MainPage', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockGetMyPendingInvites.mockResolvedValue([]);
     Object.defineProperty(window, 'location', { value: { href: '' }, writable: true });
   });
 

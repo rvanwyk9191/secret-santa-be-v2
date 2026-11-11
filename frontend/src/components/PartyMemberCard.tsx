@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Box, Button, Card, CardContent, Typography } from '@mui/material';
 import type { MemberPartyEntry } from '../types/api';
-import { displayName } from '../types/api';
 
 // Modals implemented in Phases 6 and 7 — lazy-imported to keep card bundle small
 const SeeMatch = React.lazy(() => import('./modals/SeeMatch'));
