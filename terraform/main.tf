@@ -24,7 +24,7 @@ provider "aws" {
   region = var.aws_region
 }
 
-# DynamoDB tables, ECS, and other resources will be defined here.
+# Application data resources remain managed alongside the deployment infrastructure.
 
 # ---------------------------------------------------------------------------
 # Emailer Lambda module
