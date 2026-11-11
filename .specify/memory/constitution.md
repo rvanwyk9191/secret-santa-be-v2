@@ -1,4 +1,13 @@
 <!--
+## Current Amendment
+
+**Version change**: 1.15 -> 1.16 (2026-11-05)
+**Rationale**: Add the user-requested single-EC2 profile: one t3.micro, Nginx
+HTTPS, Elastic IP, secretsanta.reinhardtvanwyk.com, instance-profile AWS access,
+and the existing npm run start workflow. ECS/ALB remains an alternative profile.
+Event-driven Lambdas are unchanged. Deployment guidance is synchronized with
+specs/006-single-ec2-deployment/ and specs/002-party-management-init/plan.md.
+
 ## Sync Impact Report
 
 **Version change**: 1.13 → 1.14
@@ -54,9 +63,19 @@ Use tsc to build the program for deployment purposes.
 There are three domains: "user", "admin", "authentication". Each covers it's own domain which represents a logical seperation from the other domains. Each domain should be able to be independently deployed.
 
 ### AWS Based
-Each domain should be deployed as it's own ECS Task (within its own target group), behind a load balancer. The load balancer should have event rules that direct traffic to the correct target group.
+The ECS deployment profile deploys each domain as its own ECS task and target group behind a load balancer with route-based traffic rules. The single-EC2 profile below is an explicit exception to independent domain deployment and the ECS/ALB requirement; logical domain boundaries MUST remain intact.
 
 DynamoDB will be the backend database that will store data for this application.
+
+#### Single-EC2 Deployment Profile
+
+For `006-single-ec2-deployment`, frontend and backend MUST run together on exactly one `t3.micro`, using Ubuntu 24.04 LTS amd64. Terraform MUST manage the instance, encrypted root volume, security group, instance profile and Elastic IP. Use an existing public subnet with an Internet Gateway route; no NAT gateway, ECS cluster, ALB or Auto Scaling Group is required.
+
+Route 53 MUST resolve `secretsanta.reinhardtvanwyk.com` to the Elastic IP using an A record. Existing manual records MUST NOT be overwritten or duplicated without an explicit migration/import step. Nginx MUST expose HTTPS and redirect HTTP to HTTPS, except for ACME validation. Only ports 80/443 may be publicly reachable; application ports 3000/8080 MUST NOT be public.
+
+The repository-root `npm run start` command MAY run both applications through `tsx`, Vite and `concurrently` under an unprivileged systemd service. This explicitly replaces Docker/ECR/ECS deployment and compiled-JavaScript runtime requirements for this small deployment only. CI MUST still run TypeScript builds and existing tests. Both root and frontend development dependencies MUST be installed because they are required by the requested command.
+
+AWS access MUST use the instance profile with least-privilege DynamoDB table/index permissions, Auth0 SSM reads, conditional KMS decrypt and SNS publishing where used. Static AWS access keys MUST NOT be installed. Bootstrap MUST preserve session secrets across reruns and provide TLS renewal, service restart and health-check procedures. This is a single point of failure; no high availability or prior 100 requests/second target is implied.
 
 ### OpenAPI Spec Control
 All domains should have it's own OpenAPI Spec that can be leveraged for testing
@@ -135,7 +154,7 @@ parameter MUST be validated against the token claim on every request.
 
 ### Security
 HTTPS MUST be used for all network communication in deployed environments. HTTP MUST NOT be used.
-- The ALB MUST be configured with an HTTPS listener. Any HTTP traffic MUST be redirected to HTTPS at the ALB level.
+- The ECS profile MUST terminate public TLS at an ALB and redirect HTTP to HTTPS there. The single-EC2 profile MUST terminate public TLS at Nginx and redirect HTTP to HTTPS there, except for ACME HTTP-01 challenges. Application upstreams MUST also use HTTPS.
 - The `BASE_URL` environment variable MUST be set to an `https://` URL in all non-local deployments.
 - Local development using `npm start` (tsx + localhost) is exempt from the HTTPS requirement.
 
@@ -275,13 +294,13 @@ All variable definitions must be stored on a per environment basis. Ensure to pr
 ### Phase 3: GitHub Actions
 1. GitHub Actions performs a build and test based off the new code that has been merged into 'main'
 2. GitHub Actions stores the artifact from the build to pass to the deployment step
-3. For Terraform, GitHub Actions will execute the build to modify the AWS infrastructure. For API builds, the artifact built will be deployed as a new ECR image and a new task version will be created for the related API, which is then deployed for the ECS service.
+3. For Terraform, GitHub Actions will execute the build to modify the AWS infrastructure. The ECS profile deploys ECR images and ECS task versions. The single-EC2 profile stages a reviewed release on the existing instance, installs locked dependencies and restarts systemd; a failed health check MUST fail deployment.
 4. GitHub Actions needs to perform health checks either on its own by triggering the API or via CLI on the target group. Health checks are required for the build to pass, if the health check fails, then the build fails.
 
 ## Build
 
 ### Docker
-Each API will be built using Docker. Use node:lts-alpine as the base image. Each Docker image must be able to be accessed through the network from the underlying EC2 system that is used.
+Under the ECS profile, each API will be built using Docker. Use node:lts-alpine as the base image. Each Docker image must be able to be accessed through the network from the underlying EC2 system that is used. Docker is not required by the single-EC2 profile.
 
 #### Naming
 API images will be named as the following - secret-santa-v2-[the domain]
@@ -311,15 +330,15 @@ runs reliably on any machine with `npm test`.
 
 ## Web Access
 ### Route53
-Route53 is being used with 'reinhardtvanwyk.com' as the CNAME record. The full CNAME will be 'secretsantabe.reinhardtvanwyk.com'.
+The single-EC2 profile uses an A record in the existing `reinhardtvanwyk.com` hosted zone: `secretsanta.reinhardtvanwyk.com` points to the Elastic IP. A CNAME cannot point directly to an IP address. Preserve or explicitly migrate the existing manual record. The older `secretsantabe.reinhardtvanwyk.com` ALB name is not the endpoint for this profile.
 
 ### ALB
-Route 53 will connect to the ALB which will handle load balancing on the traffic. An existing VPC named 'reinhardtvanwyk.com_2' will be used. Public and private subnets exists. Routing will take place based off the uri to target groups.
+This section applies only to the alternative ECS profile, not single-EC2. Route 53 will connect to the ALB which will handle load balancing on the traffic. An existing VPC named 'reinhardtvanwyk.com_2' will be used. Public and private subnets exists. Routing will take place based off the uri to target groups.
 - /admin -> admin domain
 - /user -> user domain
 - /auth -> auth domain
 
 ### Target Group Routing
-Target groups will be created and will use the smallest instance of EC2 available. Prefer general performance. Prefer free tier eligible. Standard health checks are fine.
+Target groups apply only to the ECS profile. The single-EC2 profile uses exactly one `t3.micro` and checks `/api/health` through the public HTTPS endpoint.
 
-**Version**: 1.15 | **Ratified**: 2026-04-17 | **Last Amended**: 2026-04-24
+**Version**: 1.16 | **Ratified**: 2026-04-17 | **Last Amended**: 2026-11-05

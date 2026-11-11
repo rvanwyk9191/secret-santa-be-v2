@@ -7,7 +7,9 @@
 
 ## Summary
 
-Build a party-based secret-santa gift exchange service where authenticated users create parties, invite participants via tokenized email links, and trigger assignment generation. Auth0 provides identity via JWT; AWS SNS delivers notification events; DynamoDB persists all domain data. The implementation follows domain-driven boundaries (`user`, `admin`, `authentication`) each independently deployable as ECS tasks behind an ALB.
+Build a party-based secret-santa gift exchange service where authenticated users create parties, invite participants via tokenized email links, and trigger assignment generation. Auth0 provides identity via JWT; AWS SNS delivers notification events; DynamoDB persists all domain data. Preserve logical domain boundaries (`user`, `admin`, `authentication`).
+
+**Deployment amendment (2026-11-05)**: [Single-EC2 deployment](../006-single-ec2-deployment/plan.md) supersedes this plan's ECS/ALB assumptions, related historical gate statuses and compute topology. Run frontend and backend together on one `t3.micro`, behind Nginx HTTPS, with an Elastic IP for `secretsanta.reinhardtvanwyk.com`. Existing application behavior and completed tasks remain unchanged.
 
 ## Technical Context
 
@@ -15,13 +17,13 @@ Build a party-based secret-santa gift exchange service where authenticated users
 **Primary Dependencies**: aws-sdk, auth0
 **Storage**: DynamoDB, SSM Parameter Store
 **Testing**: Jest
-**Target Platform**: Linux Server (EC2 Autoscaling Group), ECS
+**Target Platform**: One Ubuntu 24.04 LTS amd64 EC2 `t3.micro`; no ECS, ALB or Auto Scaling Group
 **Project Type**: web-service
-**Performance Goals**: 100 req/s
-**Constraints**: memory 4 GiB, 1 GB Storage
+**Performance Goals**: Small private gift-exchange workload; verify responsiveness on the deployed instance rather than asserting 100 req/s
+**Constraints**: 2 burstable vCPUs, 1 GiB RAM, 2 GiB swap, 16 GiB encrypted gp3 root volume
 **Scale/Scope**: Small set of internal users
-**Local Run**: `npm start` → `tsx src/controllers/index.ts` (TypeScript executed directly via tsx)
-**Deployment Build**: `npm run build` → `npx tsc` (compiled to `dist/` via tsc for Docker/ECS deployment)
+**Local Run**: Repository-root `npm run start` launches backend `tsx` and frontend Vite through `concurrently`
+**Deployment Build**: CI runs `npm run build` and frontend build; EC2 runs the existing `npm run start` workflow under systemd with development dependencies installed
 
 ## Constitution Check
 
@@ -88,7 +90,7 @@ tests/
   - utils - contains any additional utility functionality that doesn't quite fit in model, services, controllers
   - auth - contains the authentication details to validate with auth0
 - Terraform
-  - compute - contains ECS, ECR, EC2 related infrastructure
+  - compute - single EC2 instance, Elastic IP, security group and instance profile, as defined in the superseding deployment plan
   - storage - contains DynamoDB and SSM Parameter Store infrastructure
 
 ## Complexity Tracking
