@@ -46,7 +46,7 @@ async function main(): Promise<void> {
     if (req.path.startsWith('/api/auth/')) {
       const cookieHeader = req.headers.cookie ?? '(none)';
       const hasAuthVerification = cookieHeader.includes('auth_verification');
-      Logger.info(`[AUTH] ${req.method} ${req.path} | cookies: ${hasAuthVerification ? 'auth_verification=✓' : 'auth_verification=MISSING'} | raw: ${cookieHeader.slice(0, 120)}`);
+      Logger.info(`[AUTH] ${req.method} ${req.path} | auth_verification: ${hasAuthVerification ? 'PRESENT' : 'MISSING'} | cookie_header: ${cookieHeader === '(none)' ? 'MISSING' : 'PRESENT'}`);
     }
     next();
   });
