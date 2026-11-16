@@ -157,7 +157,7 @@ EOF
     cd "$app_dir"
     runuser -u secret-santa -- /usr/local/bin/npm ci --include=dev --no-audit --no-fund
     runuser -u secret-santa -- /usr/local/bin/npm --prefix frontend ci --include=dev --no-audit --no-fund
-    systemctl reset-failed secret-santa.service
+    systemctl reset-failed secret-santa.service || true
     systemctl enable secret-santa.service
     systemctl restart secret-santa.service
     curl --fail --silent --show-error --retry 15 --retry-connrefused --retry-all-errors --retry-delay 2 \
