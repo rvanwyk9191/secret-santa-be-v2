@@ -190,6 +190,9 @@ server {
         proxy_ssl_trusted_certificate $config_dir/localhost.pem;
         proxy_ssl_name localhost;
         proxy_ssl_server_name on;
+        proxy_buffer_size 16k;
+        proxy_buffers 8 16k;
+        proxy_busy_buffers_size 32k;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Forwarded-Proto https;
