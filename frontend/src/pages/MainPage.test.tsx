@@ -7,13 +7,15 @@ jest.mock('../api/partyApi', () => ({
   getMyParties: jest.fn(),
   getMyHostedParties: jest.fn(),
   getMyPendingInvites: jest.fn(),
+  getMyProfile: jest.fn(),
+  saveMyProfile: jest.fn(),
 }));
 
 // Mock child components to isolate MainPage logic
 jest.mock('../components/PartyMemberCard', () => ({
   __esModule: true,
-  default: ({ entry }: { entry: { party: { name: string } } }) => (
-    <div data-testid="party-member-card">{entry.party.name}</div>
+  default: ({ entry }: { entry: { party: { name: string }; host_display_name?: string } }) => (
+    <div data-testid="party-member-card">{entry.party.name}{entry.host_display_name && `: ${entry.host_display_name}`}</div>
   ),
 }));
 
@@ -34,7 +36,7 @@ jest.mock('../components/modals/CreateAParty', () => ({
     ) : null,
 }));
 
-import { getMyParties, getMyHostedParties, getMyPendingInvites } from '../api/partyApi';
+import { getMyParties, getMyHostedParties, getMyPendingInvites, getMyProfile, saveMyProfile } from '../api/partyApi';
 
 const mockGetMyParties = getMyParties as jest.MockedFunction<typeof getMyParties>;
 const mockGetMyHostedParties = getMyHostedParties as jest.MockedFunction<typeof getMyHostedParties>;
@@ -83,6 +85,7 @@ describe('MainPage', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetMyPendingInvites.mockResolvedValue([]);
+    jest.mocked(getMyProfile).mockResolvedValue({ email: 'user@example.com', first_name: 'Reinhardt', last_name: 'van Wyk' });
     Object.defineProperty(window, 'location', { value: { href: '' }, writable: true });
   });
 
@@ -162,8 +165,8 @@ describe('MainPage', () => {
     });
   });
 
-  it('shows the greeting using the first member name', async () => {
-    mockGetMyParties.mockResolvedValueOnce(memberPartyFixture);
+  it('greets a user with a complete profile and no parties without prompting', async () => {
+    mockGetMyParties.mockResolvedValueOnce([]);
     mockGetMyHostedParties.mockResolvedValueOnce([]);
 
     render(<MainPage />);
@@ -171,6 +174,50 @@ describe('MainPage', () => {
     await waitFor(() => {
       expect(screen.getByText(/Ho, Ho, Ho...Reinhardt van Wyk/)).toBeInTheDocument();
     });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('prefills the known name, keeps input after a failed save, and updates the header after retry', async () => {
+    const user = userEvent.setup();
+    const profile = { email: 'user@example.com', first_name: 'Reinhardt', last_name: null };
+    jest.mocked(getMyProfile).mockResolvedValueOnce(profile);
+    jest.mocked(saveMyProfile).mockRejectedValueOnce(new Error('Unavailable'))
+      .mockResolvedValueOnce({ ...profile, last_name: 'van Wyk' });
+    const [other] = memberPartyFixture;
+    mockGetMyParties.mockResolvedValueOnce([
+      { ...other!, host_display_name: 'Kris Kringle' },
+      { ...other!, party: { ...other!.party, party_id: 'p3', name: 'My Party', admin_email: profile.email } },
+    ]);
+    mockGetMyHostedParties.mockResolvedValueOnce([]);
+
+    render(<MainPage />);
+    await screen.findByRole('dialog');
+    expect(screen.getByRole('textbox', { name: /first name/i })).toHaveValue('Reinhardt');
+    const lastName = screen.getByRole('textbox', { name: /last name/i });
+    const save = screen.getByRole('button', { name: 'Save' });
+    await user.click(save);
+    expect(screen.getByText('Enter your last name.')).toBeInTheDocument();
+    expect(saveMyProfile).not.toHaveBeenCalled();
+    await user.type(lastName, 'van Wyk');
+    await user.click(save);
+    expect(await screen.findByText(/could not save/i)).toBeInTheDocument();
+    expect(lastName).toHaveValue('van Wyk');
+    await user.click(save);
+    expect(await screen.findByText(/Ho, Ho, Ho...Reinhardt van Wyk/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.getByText('My Party: Reinhardt van Wyk')).toBeInTheDocument();
+    expect(screen.getByText('Sesame Street Party: Kris Kringle')).toBeInTheDocument();
+  });
+
+  it('distinguishes a failed profile load from an incomplete profile', async () => {
+    jest.mocked(getMyProfile).mockRejectedValueOnce(new Error('Unavailable'));
+    mockGetMyParties.mockResolvedValueOnce([]);
+    mockGetMyHostedParties.mockResolvedValueOnce([]);
+    render(<MainPage />);
+    expect(await screen.findByText(/could not load your profile/i)).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Retry profile' }));
+    expect(await screen.findByText(/Ho, Ho, Ho...Reinhardt van Wyk/)).toBeInTheDocument();
   });
 
   it('navigates to /api/auth/logout when Sign Out is clicked', async () => {

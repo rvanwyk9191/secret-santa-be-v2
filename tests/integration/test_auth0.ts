@@ -48,6 +48,7 @@ describe('checkJwt middleware factory (integration)', () => {
 
     expect(expressjwt).toHaveBeenCalledTimes(1);
     const callArgs = (expressjwt as jest.Mock).mock.calls[0][0] as Record<string, unknown>;
+    expect(callArgs.requestProperty).toBe('auth.payload');
     expect(callArgs['issuer']).toBe('https://integration-test.auth0.com/');
     expect(callArgs['audience']).toBe('https://api.integration-test.example');
     expect(callArgs['algorithms']).toEqual(['RS256']);

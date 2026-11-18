@@ -17,6 +17,7 @@ import { dynamoClient } from '../utils/dynamodb.js';
 import { getCallerEmail } from '../utils/requestHelpers.js';
 import { serviceError } from '../utils/serviceError.js';
 import { acceptInvitation } from '../services/registrationService.js';
+import { getHostDisplayNames } from '../services/accountProfileService.js';
 import { Logger } from '../utils/logger.js';
 
 const INVITATIONS_TABLE = 'Invitations';
@@ -28,6 +29,7 @@ export interface PendingInvite {
   party_id: string;
   party_name: string;
   admin_email: string;
+  host_display_name?: string;
   party_date?: string;
   token: string;
   sent_at: string;
@@ -93,7 +95,11 @@ pendingInvitesRouter.get(
         })
       );
 
-      res.json(pending);
+      const hostNames = await getHostDisplayNames(pending.map(invite => invite.admin_email));
+      res.json(pending.map(invite => {
+        const host_display_name = hostNames.get(invite.admin_email.toLowerCase());
+        return host_display_name ? { ...invite, host_display_name } : invite;
+      }));
     } catch (err) {
       Logger.error('Error in GET /api/me/pending-invites', err instanceof Error ? err.message : String(err));
       next(err);

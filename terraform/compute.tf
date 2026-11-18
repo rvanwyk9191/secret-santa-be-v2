@@ -136,6 +136,13 @@ data "aws_iam_policy_document" "application" {
   }
 
   statement {
+    sid       = "AccountProfileOperations"
+    effect    = "Allow"
+    actions   = ["dynamodb:GetItem", "dynamodb:PutItem"]
+    resources = [aws_dynamodb_table.user_profiles.arn]
+  }
+
+  statement {
     sid       = "ApplicationTableQueries"
     effect    = "Allow"
     actions   = ["dynamodb:Query", "dynamodb:Scan"]

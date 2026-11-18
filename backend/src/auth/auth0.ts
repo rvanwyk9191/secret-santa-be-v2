@@ -70,6 +70,7 @@ export async function createCheckJwt(): Promise<RequestHandler> {
     audience,
     issuer: `https://${domain}/`,
     algorithms: ['RS256'],
+    requestProperty: 'auth.payload',
     // Read the JWT from the access_token cookie instead of the Authorization header.
     // Bearer tokens are explicitly rejected (constitution v1.13).
     getToken: (req: Request): string | undefined => {

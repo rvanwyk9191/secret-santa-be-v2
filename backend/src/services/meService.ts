@@ -8,6 +8,7 @@ import type { Assignment } from '../models/assignment.js';
 import type { Invitation } from '../models/invitation.js';
 import { Logger } from '../utils/logger.js';
 import { dynamoClient } from '../utils/dynamodb.js';
+import { getHostDisplayNames } from './accountProfileService.js';
 
 const PARTIES_TABLE = 'Parties';
 const PARTY_MEMBERS_TABLE = 'PartyMembers';
@@ -17,6 +18,7 @@ const INVITATIONS_TABLE = 'Invitations';
 export interface MemberPartyEntry {
   party: Party;
   member: PartyMember;
+  host_display_name?: string;
   assignment?: {
     recipient_email: string;
     recipient_first_name?: string;
@@ -106,7 +108,12 @@ export async function getMyParties(callerEmail: string): Promise<MemberPartyEntr
     })
   );
 
-  return entries.filter((e): e is MemberPartyEntry => e !== null);
+  const validEntries = entries.filter((e): e is MemberPartyEntry => e !== null);
+  const hostNames = await getHostDisplayNames(validEntries.map(({ party }) => party.admin_email));
+  return validEntries.map(entry => {
+    const host_display_name = hostNames.get(entry.party.admin_email.toLowerCase());
+    return host_display_name ? { ...entry, host_display_name } : entry;
+  });
 }
 
 /**

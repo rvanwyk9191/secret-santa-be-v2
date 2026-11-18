@@ -11,7 +11,17 @@ import type {
   SaveGiftBlobPayload,
   CreateAssignmentsPayload,
   PendingInvite,
+  AccountProfile,
+  CompleteProfilePayload,
 } from '../types/api';
+
+export async function getMyProfile(): Promise<AccountProfile> {
+  return (await client.get<AccountProfile>('/me/profile')).data;
+}
+
+export async function saveMyProfile(payload: CompleteProfilePayload): Promise<AccountProfile> {
+  return (await client.put<AccountProfile>('/me/profile', payload)).data;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Current-user party lookups

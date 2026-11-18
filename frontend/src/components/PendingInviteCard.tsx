@@ -52,7 +52,7 @@ function PendingInviteCard({ invite, onRefresh }: PendingInviteCardProps): React
           {invite.party_name}
         </Typography>
         <Typography variant="body2" color="text.secondary" gutterBottom>
-          Hosted By: {invite.admin_email}
+          Hosted By: {invite.host_display_name ?? invite.admin_email}
         </Typography>
         {dateDisplay && (
           <Typography variant="body2" color="text.secondary" gutterBottom>
