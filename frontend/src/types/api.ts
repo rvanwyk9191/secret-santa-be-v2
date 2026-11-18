@@ -45,6 +45,7 @@ export interface RecipientInfo {
 export interface MemberPartyEntry {
   party: Party;
   member: PartyMember;
+  host_display_name?: string;
   assignment?: RecipientInfo;
 }
 
@@ -106,9 +107,21 @@ export interface PendingInvite {
   party_id: string;
   party_name: string;
   admin_email: string;
+  host_display_name?: string;
   party_date?: string;
   token: string;
   sent_at: string;
+}
+
+export interface AccountProfile {
+  email: string;
+  first_name: string | null;
+  last_name: string | null;
+}
+
+export interface CompleteProfilePayload {
+  firstName: string;
+  lastName: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

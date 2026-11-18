@@ -19,7 +19,7 @@ function PartyMemberCard({ entry, onRefresh }: PartyMemberCardProps): React.JSX.
   const showSeeMatch = Boolean(assignment);
   const showEditGifts = !party.locked && party.customizationEnabled;
 
-  const hostName = party.admin_email;
+  const hostName = entry.host_display_name ?? party.admin_email;
 
   return (
     <>

@@ -52,6 +52,11 @@ describe('PartyMemberCard', () => {
     expect(screen.getByText(/Hosted By: admin@example.com/)).toBeInTheDocument();
   });
 
+  it('prefers the host full name', () => {
+    render(<PartyMemberCard entry={makeEntry({ host_display_name: 'Kris Kringle' })} />);
+    expect(screen.getByText('Hosted By: Kris Kringle')).toBeInTheDocument();
+  });
+
   it('does not show See Match when there is no assignment', () => {
     render(<PartyMemberCard entry={makeEntry()} />);
     expect(screen.queryByRole('button', { name: /see match/i })).not.toBeInTheDocument();

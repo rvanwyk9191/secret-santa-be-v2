@@ -1,0 +1,113 @@
+openapi: 3.0.3
+info:
+  title: Secret Santa user profile completion
+  version: 1.0.0
+servers:
+  - url: /api
+security:
+  - cookieAuth: []
+paths:
+  /me/profile:
+    get:
+      operationId: getMyProfile
+      description: Returns the caller's effective names. Missing profile is a normal response with nullable fields.
+      responses:
+        '200':
+          $ref: '#/components/responses/Profile'
+        '401':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+    put:
+      operationId: completeMyProfile
+      description: Saves the caller's names. Requires a same-origin JSON request. Repeating an identical completed save succeeds; this is not a profile editor.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [firstName, lastName]
+              properties:
+                firstName:
+                  $ref: '#/components/schemas/SubmittedName'
+                lastName:
+                  $ref: '#/components/schemas/SubmittedName'
+      responses:
+        '200':
+          $ref: '#/components/responses/Profile'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '415':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: access_token
+  schemas:
+    SubmittedName:
+      type: string
+      minLength: 1
+      pattern: '\S'
+      description: Trim surrounding whitespace prior to persistence.
+    Profile:
+      type: object
+      additionalProperties: false
+      required: [email, first_name, last_name]
+      properties:
+        email:
+          type: string
+          format: email
+        first_name:
+          type: string
+          nullable: true
+        last_name:
+          type: string
+          nullable: true
+    HostDisplayNameExtension:
+      type: object
+      description: Optional additive fields on entries returned by GET /me/parties and GET /me/pending-invites. All existing fields remain unchanged.
+      properties:
+        host_display_name:
+          type: string
+          minLength: 1
+          description: The host's complete display name. If omitted, use the existing admin email label.
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [message]
+          properties:
+            message:
+              type: string
+  responses:
+    Profile:
+      description: Effective caller profile; on successful PUT both names are non-null.
+      headers:
+        Cache-Control:
+          schema:
+            type: string
+            enum: [no-store]
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Profile'
+    Error:
+      description: Structured API failure. For 409, reload the current profile before attempting another save.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

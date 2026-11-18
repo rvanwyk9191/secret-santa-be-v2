@@ -79,6 +79,19 @@ resource "aws_dynamodb_table" "party_members" {
   }
 }
 
+# Account-level user profiles
+resource "aws_dynamodb_table" "user_profiles" {
+  name                        = "UserProfiles"
+  billing_mode                = "PAY_PER_REQUEST"
+  hash_key                    = "email"
+  deletion_protection_enabled = true
+
+  attribute {
+    name = "email"
+    type = "S"
+  }
+}
+
 # Invitations Table
 resource "aws_dynamodb_table" "invitations" {
   name           = "Invitations"

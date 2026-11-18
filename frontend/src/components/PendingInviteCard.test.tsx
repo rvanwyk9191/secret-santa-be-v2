@@ -31,6 +31,11 @@ describe('PendingInviteCard', () => {
     expect(screen.getByText(/^Date:/)).toBeInTheDocument();
   });
 
+  it('prefers the host full name', () => {
+    render(<PendingInviteCard invite={{ ...invite, host_display_name: 'Kris Kringle' }} onRefresh={jest.fn()} />);
+    expect(screen.getByText('Hosted By: Kris Kringle')).toBeInTheDocument();
+  });
+
   it('accepts an invite and refreshes the party list', async () => {
     const onRefresh = jest.fn();
     mockAccept.mockResolvedValueOnce({

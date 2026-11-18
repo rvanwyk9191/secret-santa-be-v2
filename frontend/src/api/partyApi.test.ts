@@ -11,10 +11,12 @@ import {
   getMyHostedParties,
   getMyParties,
   getMyPendingInvites,
+  getMyProfile,
   lockParty,
   removeMember,
   revokeInvitation,
   saveGiftBlob,
+  saveMyProfile,
   unlockParty,
   updateParty,
 } from './partyApi';
@@ -24,6 +26,7 @@ jest.mock('./client', () => ({
   default: {
     get: jest.fn(),
     post: jest.fn(),
+    put: jest.fn(),
     patch: jest.fn(),
     delete: jest.fn(),
   },
@@ -32,6 +35,7 @@ jest.mock('./client', () => ({
 const mockClient = client as unknown as {
   get: jest.Mock;
   post: jest.Mock;
+  put: jest.Mock;
   patch: jest.Mock;
   delete: jest.Mock;
 };
@@ -53,6 +57,18 @@ describe('party API requests', () => {
     expect(mockClient.get).toHaveBeenNthCalledWith(1, '/me/parties');
     expect(mockClient.get).toHaveBeenNthCalledWith(2, '/me/hosted-parties');
     expect(mockClient.get).toHaveBeenNthCalledWith(3, '/me/pending-invites');
+  });
+
+  it('reads and completes only the signed-in user profile', async () => {
+    const profile = { email: 'user@example.com', first_name: 'Kris', last_name: 'Kringle' };
+    const names = { firstName: 'Kris', lastName: 'Kringle' };
+    mockClient.get.mockResolvedValueOnce({ data: profile });
+    mockClient.put.mockResolvedValueOnce({ data: profile });
+
+    await expect(getMyProfile()).resolves.toEqual(profile);
+    await expect(saveMyProfile(names)).resolves.toEqual(profile);
+    expect(mockClient.get).toHaveBeenCalledWith('/me/profile');
+    expect(mockClient.put).toHaveBeenCalledWith('/me/profile', names);
   });
 
   it('forwards party lifecycle requests and returns response data', async () => {

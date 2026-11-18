@@ -1,10 +1,12 @@
 # secret-santa-v2 Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-11-05
+Auto-generated from all feature plans. Last updated: 2026-11-18
 
 ## Active Technologies
 - Bash, Node 25.8.2 (existing mandate; non-LTS/EOL risk recorded), locked TypeScript 6.0.x, Terraform 1.14.8 + Ubuntu 24.04 LTS amd64, Nginx, certbot, systemd, OpenSSL, npm, tsx, concurrently, Vite, Express, AWS SDK v3, AWS CLI v2, GitHub Actions OIDC, S3 artifacts, SSM Run Command (006-single-ec2-deployment)
 - Existing DynamoDB tables; Auth0 parameters in SSM; encrypted 16 GiB gp3 root disk; 2 GiB swap (006-single-ec2-deployment)
+- Node 25.8.2, TypeScript 6.0.2 with `verbatimModuleSyntax` + Existing Express, Auth0 cookie JWT middleware, AWS SDK v3, React, Material UI, Vite, Terraform 1.14.8 (007-profile-completion)
+- New DynamoDB `UserProfiles` table; read-only legacy fallback from `PartyMembers` (007-profile-completion)
 
 - Bash, Node 25.8.2 (existing mandate; non-LTS/EOL risk recorded), locked TypeScript 6.0.x, Terraform 1.14.8 + Ubuntu 24.04 LTS amd64, Nginx, certbot, systemd, OpenSSL, npm, tsx, concurrently, Vite, Express, AWS SDK v3 (006-single-ec2-deployment)
 
@@ -30,6 +32,7 @@ tests/
 Bash, Node 25.8.2 (existing mandate; non-LTS/EOL risk recorded), locked TypeScript 6.0.x, Terraform 1.14.8: Follow standard conventions
 
 ## Recent Changes
+- 007-profile-completion: Added Node 25.8.2, TypeScript 6.0.2 with `verbatimModuleSyntax` + Existing Express, Auth0 cookie JWT middleware, AWS SDK v3, React, Material UI, Vite, Terraform 1.14.8
 - 006-single-ec2-deployment: Added Bash, Node 25.8.2 (existing mandate; non-LTS/EOL risk recorded), locked TypeScript 6.0.x, Terraform 1.14.8 + Ubuntu 24.04 LTS amd64, Nginx, certbot, systemd, OpenSSL, npm, tsx, concurrently, Vite, Express, AWS SDK v3, AWS CLI v2, GitHub Actions OIDC, S3 artifacts, SSM Run Command
 
 - 006-single-ec2-deployment: Added Bash, Node 25.8.2 (existing mandate; non-LTS/EOL risk recorded), locked TypeScript 6.0.x, Terraform 1.14.8 + Ubuntu 24.04 LTS amd64, Nginx, certbot, systemd, OpenSSL, npm, tsx, concurrently, Vite, Express, AWS SDK v3

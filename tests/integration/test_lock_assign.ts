@@ -31,7 +31,7 @@ function buildTestApp(registeredEmail: string | null) {
   app.use(express.json());
   app.use((req, _res, next) => {
     if (registeredEmail !== null) {
-      (req as any).auth = { registered_user_email: registeredEmail };
+      Object.assign(req, { auth: { payload: { registered_user_email: registeredEmail } } });
     }
     next();
   });

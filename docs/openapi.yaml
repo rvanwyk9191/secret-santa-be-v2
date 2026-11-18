@@ -34,6 +34,25 @@ servers:
         description: Application host
 
 components:
+  parameters:
+    PartyId:
+      name: party_id
+      in: path
+      required: true
+      schema:
+        type: string
+        example: e876dd4f
+      description: 8-character hex party identifier.
+
+    MemberId:
+      name: member_id
+      in: path
+      required: true
+      schema:
+        type: string
+        example: member%40example.com
+      description: URL-encoded email address of the party member.
+
   securitySchemes:
     cookieAuth:
       type: apiKey
@@ -750,26 +769,43 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
-  # ── Reusable parameters ──────────────────────────────────────────────────────
+  /me/profile:
+    $ref: '../specs/007-profile-completion/contracts/user-profile.openapi.yaml#/paths/~1me~1profile'
 
-parameters:
-  PartyId:
-    name: party_id
-    in: path
-    required: true
-    schema:
-      type: string
-      example: e876dd4f
-    description: 8-character hex party identifier.
-
-  MemberId:
-    name: member_id
-    in: path
-    required: true
-    schema:
-      type: string
-      example: member%40example.com
-    description: URL-encoded email address of the party member.
+  /me/pending-invites:
+    get:
+      operationId: getMyPendingInvites
+      tags: [Me]
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: The caller's pending invitations with optional host display names.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [party_id, party_name, admin_email, token, sent_at]
+                  properties:
+                    party_id:
+                      type: string
+                    party_name:
+                      type: string
+                    admin_email:
+                      type: string
+                    host_display_name:
+                      type: string
+                      description: Full name when known; otherwise use admin_email.
+                    party_date:
+                      type: string
+                    token:
+                      type: string
+                    sent_at:
+                      type: string
+        '401':
+          description: Missing or invalid authentication cookie.
 
   /me/parties:
     get:
@@ -796,6 +832,9 @@ parameters:
                       $ref: '#/components/schemas/Party'
                     member:
                       $ref: '#/components/schemas/PartyMember'
+                    host_display_name:
+                      type: string
+                      description: Full name when known; otherwise use the party's admin_email.
                     assignment:
                       type: object
                       properties:

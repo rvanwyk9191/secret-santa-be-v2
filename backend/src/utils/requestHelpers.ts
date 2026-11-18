@@ -8,9 +8,8 @@ import type { Request, Response } from 'express';
  * Callers must `return` immediately when this returns `undefined`.
  */
 export function getCallerEmail(req: Request, res: Response): string | undefined {
-  // express-jwt v8 stores the decoded payload directly at req.auth (not nested under req.auth.payload)
-  const email = (req as any).auth?.['registered_user_email'] as string | undefined;
-  if (!email) {
+  const email = (req as Request & { auth?: { payload?: Record<string, unknown> } }).auth?.payload?.['registered_user_email'];
+  if (typeof email !== 'string' || !email.trim()) {
     res.status(401).json({ error: { message: 'Unauthorized: missing email claim in token.' } });
     return undefined;
   }
@@ -22,7 +21,7 @@ export function getCallerEmail(req: Request, res: Response): string | undefined 
  * If they differ, writes a 403 response and returns `false`.
  * Callers must `return` immediately when this returns `false`.
  *
- * @param callerEmail  - Email from the JWT (already lowercased by getCallerEmail)
+ * @param callerEmail  - Email from the JWT
  * @param memberEmail  - Email decoded from the URL parameter (already lowercased)
  * @param forbiddenMessage - Custom message for the 403 body
  */
